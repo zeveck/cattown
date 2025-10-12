@@ -287,3 +287,39 @@ body {
 #currentForm {
     color: #FFD700;
 }
+
+/* Vertical rainbow title */
+.game-title-vertical {
+    position: absolute;
+    left: -120px;
+    top: 50px;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Arial Black', Arial, sans-serif;
+    font-size: 32px;
+    font-weight: bold;
+    line-height: 1.1;
+    pointer-events: none;
+}
+
+.rainbow-letter {
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+    margin: 0;
+}
+
+.rainbow-letter:nth-child(1) { color: #FF0000; } /* C - Red */
+.rainbow-letter:nth-child(2) { color: #FF7F00; } /* l - Orange */
+.rainbow-letter:nth-child(3) { color: #FFFF00; } /* a - Yellow */
+.rainbow-letter:nth-child(4) { color: #00FF00; } /* r - Green */
+.rainbow-letter:nth-child(5) { color: #0000FF; } /* a - Blue */
+.rainbow-letter:nth-child(6) { color: #4B0082; } /* ' - Indigo */
+.rainbow-letter:nth-child(7) { color: #9400D3; } /* s - Violet */
+.rainbow-letter:nth-child(8) { color: #FF1493; } /* space - Pink */
+.rainbow-letter:nth-child(9) { color: #FF0000; } /* C - Red */
+.rainbow-letter:nth-child(10) { color: #FF7F00; } /* a - Orange */
+.rainbow-letter:nth-child(11) { color: #FFFF00; } /* t - Yellow */
+.rainbow-letter:nth-child(12) { color: #00FF00; } /* space - Green */
+.rainbow-letter:nth-child(13) { color: #0000FF; } /* T - Blue */
+.rainbow-letter:nth-child(14) { color: #4B0082; } /* o - Indigo */
+.rainbow-letter:nth-child(15) { color: #9400D3; } /* w - Violet */
+.rainbow-letter:nth-child(16) { color: #FF1493; } /* n - Pink */

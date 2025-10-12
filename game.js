@@ -57,21 +57,24 @@ const gameState = {
         table: 0,
         chair: 0,
         rug: 0,
-        plant: 0
+        plant: 0,
+        lamp: 0
     },
     furnitureSizes: {
         bed: 1.0,
         table: 1.0,
         chair: 1.0,
         rug: 1.0,
-        plant: 1.0
+        plant: 1.0,
+        lamp: 1.0
     },
     furnitureShop: [
         { type: 'bed', name: 'Bed', cost: 100, color: '#8B4513', width: 80, height: 100 },
         { type: 'table', name: 'Table', cost: 50, color: '#D2691E', width: 60, height: 60 },
         { type: 'chair', name: 'Chair', cost: 30, color: '#A0522D', width: 40, height: 40 },
         { type: 'rug', name: 'Rug', cost: 40, color: '#DC143C', width: 100, height: 80 },
-        { type: 'plant', name: 'Plant', cost: 25, color: '#228B22', width: 30, height: 40 }
+        { type: 'plant', name: 'Plant', cost: 25, color: '#228B22', width: 30, height: 40 },
+        { type: 'lamp', name: 'Lamp', cost: 35, color: '#FFD700', width: 30, height: 50 }
     ]
 };
 
@@ -292,15 +295,23 @@ class Player {
         this.width = 48;
         this.height = 64;
         this.speed = CONFIG.PLAYER_SPEED;
+        this.baseSpeed = CONFIG.PLAYER_SPEED;
         this.health = 200;
         this.maxHealth = 200;
         this.isCat = false;
         this.lastMagicTime = 0;
+        this.speedBoostEndTime = 0;
     }
 
     update() {
         const prevX = this.x;
         const prevY = this.y;
+
+        // Check if speed boost has expired
+        if (this.speedBoostEndTime > 0 && Date.now() > this.speedBoostEndTime) {
+            this.speed = this.baseSpeed;
+            this.speedBoostEndTime = 0;
+        }
 
         // Movement
         if (gameState.keys['ArrowUp']) this.y -= this.speed;
@@ -426,6 +437,11 @@ class Player {
 
     heal(amount) {
         this.health = Math.min(this.maxHealth, this.health + amount);
+    }
+
+    activateSpeedBoost(duration = 5000, multiplier = 1.5) {
+        this.speed = this.baseSpeed * multiplier;
+        this.speedBoostEndTime = Date.now() + duration;
     }
 
     transform() {
@@ -759,6 +775,10 @@ class Item {
         // Check if player is near
         if (gameState.player && this.isNear(gameState.player, 30)) {
             gameState.player.heal(this.healAmount);
+
+            // Activate speed boost when eating food
+            gameState.player.activateSpeedBoost(5000, 1.5); // 5 seconds, 1.5x speed
+
             updateUI();
 
             // Remove item
@@ -1223,7 +1243,8 @@ const furnitureImages = {
     table: new Image(),
     chair: new Image(),
     rug: new Image(),
-    plant: new Image()
+    plant: new Image(),
+    lamp: new Image()
 };
 
 furnitureImages.bed.src = 'graphics/house-items/bed.png';
@@ -1231,6 +1252,7 @@ furnitureImages.table.src = 'graphics/house-items/table.png';
 furnitureImages.chair.src = 'graphics/house-items/ChatGPT Image Oct 12, 2025, 11_55_14 AM.png';
 furnitureImages.rug.src = 'graphics/house-items/rug.png';
 furnitureImages.plant.src = 'graphics/house-items/plant.png';
+furnitureImages.lamp.src = 'graphics/house-items/lamp.png';
 
 // Load chest images
 const fullChestImage = new Image();
@@ -1253,7 +1275,7 @@ const grassTileImage = new Image();
 grassTileImage.src = 'graphics/grass_tile.png';
 
 let imagesLoaded = 0;
-const totalImages = 28; // girl, cat, 8 houses, 7 friends, 5 furniture, 2 chests, 3 trees, 1 grass tile
+const totalImages = 29; // girl, cat, 8 houses, 7 friends, 6 furniture, 2 chests, 3 trees, 1 grass tile
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -1335,6 +1357,9 @@ furnitureImages.rug.onerror = () => { console.error('Failed to load rug.png'); i
 furnitureImages.plant.onload = imageLoadHandler;
 furnitureImages.plant.onerror = () => { console.error('Failed to load plant.png'); imageLoadHandler(); };
 
+furnitureImages.lamp.onload = imageLoadHandler;
+furnitureImages.lamp.onerror = () => { console.error('Failed to load lamp.png'); imageLoadHandler(); };
+
 fullChestImage.onload = imageLoadHandler;
 fullChestImage.onerror = () => { console.error('Failed to load full-chest.png'); imageLoadHandler(); };
 
@@ -1387,8 +1412,16 @@ document.addEventListener('keydown', (e) => {
 
     // Rotate furniture with R
     if (e.key === 'r' || e.key === 'R') {
-        if (gameState.isInsideHouse && gameState.selectedFurnitureType) {
-            gameState.furnitureRotation = (gameState.furnitureRotation + 90) % 360;
+        if (gameState.isInsideHouse) {
+            // Rotate furniture being placed from shop
+            if (gameState.selectedFurnitureType) {
+                gameState.furnitureRotation = (gameState.furnitureRotation + 90) % 360;
+            }
+            // Rotate already-placed furniture that's selected
+            else if (gameState.selectedPlacedFurniture) {
+                const currentRotation = gameState.selectedPlacedFurniture.rotation || 0;
+                gameState.selectedPlacedFurniture.rotation = (currentRotation + 90) % 360;
+            }
         }
     }
 
@@ -1636,9 +1669,9 @@ function enterHouse(building) {
     }
     gameState.placedFurniture = gameState.houseFurniture[building.id];
 
-    // Store player position in house coordinates
+    // Store player position in house coordinates - centered on canvas
     if (!gameState.playerHousePos) {
-        gameState.playerHousePos = { x: 600, y: 400 };
+        gameState.playerHousePos = { x: canvas.width / 2, y: canvas.height / 2 };
     }
     gameState.player.houseX = gameState.playerHousePos.x;
     gameState.player.houseY = gameState.playerHousePos.y;
@@ -1658,6 +1691,14 @@ function exitHouse() {
 
 // Draw house interior
 function drawHouseInterior(ctx) {
+    // Define interior room dimensions - reduced height by 140px total
+    const margin = 10; // Very small margin to maximize room size
+    const roomWidth = canvas.width - (margin * 2);  // 1180px (1200 - 20)
+    const roomHeight = canvas.height - (margin * 2) - 140; // 640px (800 - 20 - 140)
+    const roomX = margin;  // Start at x=10
+    const roomY = margin;  // Start at y=10
+    const wallThickness = 35;
+
     // Update player movement in house
     if (gameState.player) {
         const prevX = gameState.player.houseX;
@@ -1668,12 +1709,11 @@ function drawHouseInterior(ctx) {
         if (gameState.keys['ArrowLeft']) gameState.player.houseX -= gameState.player.speed;
         if (gameState.keys['ArrowRight']) gameState.player.houseX += gameState.player.speed;
 
-        // Proper collision with walls - keep player fully inside
-        // Walls are 50px thick, player is 48x64
-        const leftBound = 50;
-        const rightBound = canvas.width - 50 - gameState.player.width;  // 1200 - 50 - 48 = 1102
-        const topBound = 50;
-        const bottomBound = canvas.height - 50 - gameState.player.height;  // 800 - 50 - 64 = 686
+        // Proper collision with walls - keep player fully inside room
+        const leftBound = roomX + wallThickness;
+        const rightBound = roomX + roomWidth - wallThickness - gameState.player.width;
+        const topBound = roomY + wallThickness;
+        const bottomBound = roomY + roomHeight - wallThickness - gameState.player.height;
 
         if (gameState.player.houseX < leftBound || gameState.player.houseX > rightBound ||
             gameState.player.houseY < topBound || gameState.player.houseY > bottomBound) {
@@ -1682,9 +1722,9 @@ function drawHouseInterior(ctx) {
         }
 
         // Check if player is in the door area at the bottom (exit zone)
-        const doorLeft = canvas.width / 2 - 30;  // 570
-        const doorRight = canvas.width / 2 + 30;  // 630
-        const doorTop = canvas.height - 50;  // 750
+        const doorLeft = roomX + roomWidth / 2 - 30;
+        const doorRight = roomX + roomWidth / 2 + 30;
+        const doorTop = roomY + roomHeight - wallThickness;
 
         // If player is near the door, show exit hint
         if (gameState.player.houseY + gameState.player.height >= doorTop - 20 &&
@@ -1718,26 +1758,33 @@ function drawHouseInterior(ctx) {
         companion.bobOffset += 0.1;
     }
 
-    // Clear canvas
-    ctx.fillStyle = '#F5DEB3'; // Wooden floor
+    // Clear canvas with dark background
+    ctx.fillStyle = '#2d2d2d';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw room floor
+    ctx.fillStyle = '#F5DEB3'; // Wooden floor
+    ctx.fillRect(roomX, roomY, roomWidth, roomHeight);
 
     // Draw walls
     ctx.fillStyle = '#D2B48C';
-    ctx.fillRect(0, 0, canvas.width, 50); // Top wall
-    ctx.fillRect(0, 0, 50, canvas.height); // Left wall
-    ctx.fillRect(canvas.width - 50, 0, 50, canvas.height); // Right wall
-    ctx.fillRect(0, canvas.height - 50, canvas.width, 50); // Bottom wall
+    ctx.fillRect(roomX, roomY, roomWidth, wallThickness); // Top wall
+    ctx.fillRect(roomX, roomY, wallThickness, roomHeight); // Left wall
+    ctx.fillRect(roomX + roomWidth - wallThickness, roomY, wallThickness, roomHeight); // Right wall
+    ctx.fillRect(roomX, roomY + roomHeight - wallThickness, roomWidth, wallThickness); // Bottom wall
 
     // Draw door
     ctx.fillStyle = '#8B4513';
-    ctx.fillRect(canvas.width / 2 - 30, canvas.height - 50, 60, 50);
+    const doorWidth = 60;
+    const doorX = roomX + roomWidth / 2 - doorWidth / 2;
+    const doorY = roomY + roomHeight - wallThickness;
+    ctx.fillRect(doorX, doorY, doorWidth, wallThickness);
 
     // Door text
     ctx.fillStyle = '#FFF';
     ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Press E to Exit', canvas.width / 2, canvas.height - 60);
+    ctx.fillText('Press E to Exit', roomX + roomWidth / 2, doorY - 10);
 
     // Draw placed furniture
     for (let furniture of gameState.placedFurniture) {
@@ -2187,17 +2234,7 @@ function updateDayNightCycle(deltaTime) {
     // 0-0.25 = Morning, 0.25-0.5 = Day, 0.5-0.75 = Evening, 0.75-1 = Night
     gameState.isNight = gameState.timeOfDay > 0.6 || gameState.timeOfDay < 0.1;
 
-    // Check for night -> day transition (dawn)
-    if (gameState.previousIsNight && !gameState.isNight) {
-        resetChests();
-    }
-}
-
-// Reset all chests (called at dawn)
-function resetChests() {
-    for (let chest of gameState.chests) {
-        chest.opened = false;
-    }
+    // Chests no longer reset at dawn - removed feature
 }
 
 // Respawn enemies (called at dusk)
