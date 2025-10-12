@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cat Town - Action RPG</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="characterCreation" class="screen" style="display: none;">
+        <h1>Welcome to Cat Town</h1>
+        <div class="creation-container">
+            <div class="creation-panel">
+                <h2>Create Your Character</h2>
+                <div class="customization">
+                    <label>Character Name:</label>
+                    <input type="text" id="playerName" value="Hero" maxlength="15">
+
+                    <label>Skin Color:</label>
+                    <div class="color-picker">
+                        <input type="color" id="skinColor" value="#ffdbac">
+                    </div>
+
+                    <label>Hair Color:</label>
+                    <div class="color-picker">
+                        <input type="color" id="hairColor" value="#8B4513">
+                    </div>
+
+                    <label>Outfit Color:</label>
+                    <div class="color-picker">
+                        <input type="color" id="outfitColor" value="#4169E1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="creation-panel">
+                <h2>Create Your Cat</h2>
+                <div class="customization">
+                    <label>Cat Name:</label>
+                    <input type="text" id="catName" value="Whiskers" maxlength="15">
+
+                    <label>Fur Color:</label>
+                    <div class="color-picker">
+                        <input type="color" id="catFurColor" value="#FF8C00">
+                    </div>
+
+                    <label>Pattern:</label>
+                    <select id="catPattern">
+                        <option value="solid">Solid</option>
+                        <option value="stripes">Stripes</option>
+                        <option value="spots">Spots</option>
+                    </select>
+
+                    <label>Pattern Color:</label>
+                    <div class="color-picker">
+                        <input type="color" id="catPatternColor" value="#8B4513">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-container">
+            <canvas id="previewCanvas" width="400" height="200"></canvas>
+        </div>
+
+        <button id="startGame" class="start-button">Start Adventure</button>
+    </div>
+
+    <div id="gameScreen" class="screen" style="display: none;">
+        <canvas id="gameCanvas" width="1200" height="800"></canvas>
+
+        <div id="gameUI">
+            <div class="help-container">
+                <button id="helpButton" class="help-button">?</button>
+                <div id="controlsPanel" class="controls-panel" style="display: none;">
+                    <div class="controls-title">Controls</div>
+                    <div class="control-item"><strong>Arrow Keys</strong> - Move</div>
+                    <div class="control-item"><strong>T</strong> - Transform</div>
+                    <div class="control-item"><strong>SPACE</strong> - Magic Attack</div>
+                    <div class="control-item"><strong>E</strong> - Interact</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
