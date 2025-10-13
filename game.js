@@ -2394,5 +2394,14 @@ function gameLoop() {
     // Update UI
     updateUI();
 
+    // Draw version number in lower right corner
+    ctx.save();
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('v0.1.0', canvas.width - 5, canvas.height - 5);
+    ctx.restore();
+
     requestAnimationFrame(gameLoop);
 }
