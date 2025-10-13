@@ -12,16 +12,18 @@ A browser-based action RPG where you explore a charming town with your customiza
 
 ## How to Play
 
+## Live Demo
+
+[https://zeveck.github.io/cattown](https://zeveck.github.io/cattown)
+
 ### Getting Started
-1. Open `index.html` in a web browser
-2. Customize your character and cat
-3. Click "Start Adventure" to begin
+1. Clone/download the repo and open `index.html` in a web browser
 
 ### Controls
 - **Arrow Keys** - Move your character
 - **T** - Transform between human and cat
 - **SPACE** - Magic attack
-- **E** - Interact with objects and NPCs
+- **E** - Interact with objects (opens chests, enters/exits houses)
 
 ### Gameplay
 - Explore the town and enter houses
