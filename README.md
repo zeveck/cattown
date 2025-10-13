@@ -64,4 +64,7 @@ Simply edit the files and refresh your browser to see changes. No build process 
 
 ---
 
-Made with creativity and code. (And by Claude. Graphics from ChatGPT.)
+Design by Clara and family.
+Coding done by Claude Code.
+Graphics generated using ChatGPT.
+Background music generated using SunoAI.
