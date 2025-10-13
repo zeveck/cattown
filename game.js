@@ -1514,15 +1514,17 @@ canvas.addEventListener('mousedown', (e) => {
         }
 
         // Check if clicking on placed furniture (but not on shop)
-        const shopWidth = (itemWidth * columns) + columnGap + 20;
-        const shopHeight = (itemHeight + gap) * itemsPerColumn + 50;
-        if (clickX < shopX - 10 || clickX > shopX + shopWidth ||
-            clickY < shopY - 40 || clickY > shopY + shopHeight) {
-            const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
-            if (clickedFurniture) {
-                gameState.selectedPlacedFurniture = clickedFurniture;
-                gameState.isDraggingFurniture = true;
-                gameState.selectedFurnitureType = null; // Clear shop selection
+        // ONLY if we're not currently placing furniture from the shop
+        if (!gameState.selectedFurnitureType) {
+            const shopWidth = (itemWidth * columns) + columnGap + 20;
+            const shopHeight = (itemHeight + gap) * itemsPerColumn + 50;
+            if (clickX < shopX - 10 || clickX > shopX + shopWidth ||
+                clickY < shopY - 40 || clickY > shopY + shopHeight) {
+                const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
+                if (clickedFurniture) {
+                    gameState.selectedPlacedFurniture = clickedFurniture;
+                    gameState.isDraggingFurniture = true;
+                }
             }
         }
     }
@@ -1541,14 +1543,18 @@ canvas.addEventListener('click', (e) => {
     if (gameState.isInsideHouse) {
         // Handle furniture shop clicks
         if (!handleFurnitureShopClick(clickX, clickY)) {
-            // If not clicking shop and not dragging, check if clicking empty space
+            // If not clicking shop and not dragging
             if (!gameState.isDraggingFurniture) {
-                const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
-                if (!clickedFurniture) {
-                    // Clicking empty space - place furniture if selected, or deselect
-                    if (gameState.selectedFurnitureType) {
-                        placeFurniture(clickX, clickY);
+                // Priority 1: If placing furniture from shop, always complete placement
+                if (gameState.selectedFurnitureType) {
+                    placeFurniture(clickX, clickY);
+                } else {
+                    // Priority 2: Only check for selecting placed furniture when not placing
+                    const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
+                    if (clickedFurniture) {
+                        gameState.selectedPlacedFurniture = clickedFurniture;
                     } else {
+                        // Clicking empty space - deselect
                         gameState.selectedPlacedFurniture = null;
                     }
                 }
