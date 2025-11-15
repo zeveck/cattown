@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.5
+// Clara's Cat Town - Version 0.2.6
 
 // Game Configuration
 const CONFIG = {
@@ -431,13 +431,16 @@ class Player {
             // Increment idle time
             this.idleTime += 16; // Approximate ms per frame at 60 FPS
 
-            // Check if current idle animation has finished
-            if (this.idleAnimationType && Date.now() - this.idleAnimationStartTime > this.idleAnimationDuration) {
+            // After 20 seconds, cat falls asleep and stays asleep
+            if (this.idleTime > 20000) {
+                this.idleAnimationType = 'sleep';
+            }
+            // Check if current idle animation has finished (but not sleep - sleep persists)
+            else if (this.idleAnimationType && this.idleAnimationType !== 'sleep' && Date.now() - this.idleAnimationStartTime > this.idleAnimationDuration) {
                 this.idleAnimationType = null;
             }
-
-            // Randomly trigger a new idle animation after being idle for a while
-            if (!this.idleAnimationType && this.idleTime > 6000) {
+            // Randomly trigger a new idle animation after being idle for a while (only if not sleeping)
+            else if (!this.idleAnimationType && this.idleTime > 6000 && this.idleTime < 20000) {
                 // Random chance to trigger animation (about 1% chance per frame when idle > 6s)
                 if (Math.random() < 0.01) {
                     // Randomly choose yawn or lick
@@ -699,6 +702,9 @@ class Player {
         if (this.isMoving) {
             // Walking animation
             catSprite = this.walkingFrame === 0 ? catWalking1 : catWalking2;
+        } else if (this.idleAnimationType === 'sleep') {
+            // Sleeping idle animation
+            catSprite = catSleeping;
         } else if (this.idleAnimationType === 'yawn') {
             // Yawning idle animation
             catSprite = catYawning;
@@ -1835,6 +1841,8 @@ const catYawning = new Image();
 catYawning.src = 'graphics/cat-yawning.png';
 const catLickingPaw = new Image();
 catLickingPaw.src = 'graphics/cat-licking-paw.png';
+const catSleeping = new Image();
+catSleeping.src = 'graphics/cat-sleeping.png';
 
 // Load house images - 4 types
 const houseImages = {
@@ -1976,8 +1984,12 @@ fullJarImage.src = 'graphics/fireflies/full-jar.png';
 const catFountainImage = new Image();
 catFountainImage.src = 'graphics/cat-fountain.png';
 
+// Load title image
+const titleImage = new Image();
+titleImage.src = 'graphics/title.png';
+
 let imagesLoaded = 0;
-const totalImages = 43; // girl, cat, 2 cat walking, 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 firefly, 2 jars, 1 cat fountain
+const totalImages = 45; // girl, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 firefly, 2 jars, 1 cat fountain, 1 title
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -2015,6 +2027,9 @@ catYawning.onerror = () => { console.error('Failed to load cat-yawning.png'); im
 
 catLickingPaw.onload = imageLoadHandler;
 catLickingPaw.onerror = () => { console.error('Failed to load cat-licking-paw.png'); imageLoadHandler(); };
+
+catSleeping.onload = imageLoadHandler;
+catSleeping.onerror = () => { console.error('Failed to load cat-sleeping.png'); imageLoadHandler(); };
 
 houseImages.house1.onload = imageLoadHandler;
 houseImages.house1.onerror = () => { console.error('Failed to load house1.png'); imageLoadHandler(); };
@@ -2128,6 +2143,9 @@ fullJarImage.onerror = () => { console.error('Failed to load full-jar.png'); ima
 
 catFountainImage.onload = imageLoadHandler;
 catFountainImage.onerror = () => { console.error('Failed to load cat-fountain.png'); imageLoadHandler(); };
+
+titleImage.onload = imageLoadHandler;
+titleImage.onerror = () => { console.error('Failed to load title.png'); imageLoadHandler(); };
 
 // Music playlist
 const musicPlaylist = [
@@ -3811,10 +3829,10 @@ function gameLoop() {
     const deltaTime = now - lastTime;
     lastTime = now;
 
-    // Auto-show controls panel after 5 seconds of inactivity (only at game start before player moves)
+    // Auto-show controls panel after 10 seconds of inactivity (only at game start before player moves)
     const idleTime = now - gameState.lastActivityTime;
     const controlsPanel = document.getElementById('controlsPanel');
-    if (idleTime > 5000 && !gameState.controlsPanelShown && !gameState.hasPlayerMoved && controlsPanel) {
+    if (idleTime > 10000 && !gameState.controlsPanelShown && !gameState.hasPlayerMoved && controlsPanel) {
         controlsPanel.style.display = 'block';
         gameState.controlsPanelShown = true;
     }
@@ -4043,8 +4061,8 @@ function gameLoop() {
             companion.draw(ctx);
         }
 
-        // Draw fading title over fountain at game start
-        if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0) {
+        // Draw fading title image over fountain at game start
+        if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0 && titleImage.complete) {
             const timeSinceStart = Date.now() - gameState.gameStartTime;
             const fadeDuration = 4000; // 4 seconds
 
@@ -4060,28 +4078,21 @@ function gameLoop() {
                 const screenX = fountainCenterX - gameState.camera.x;
                 const screenY = fountainTopY - gameState.camera.y;
 
-                // Draw title with fade effect
+                // Draw title image with fade effect
                 ctx.save();
                 ctx.globalAlpha = opacity;
-                ctx.font = 'bold 48px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
 
-                // Draw shadow
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-                ctx.fillText("Clara's Cat Town", screenX + 3, screenY + 3);
+                // Size the title image (adjust as needed for your image dimensions)
+                const titleWidth = 400; // Adjust based on your image
+                const titleHeight = titleWidth * (titleImage.height / titleImage.width); // Maintain aspect ratio
 
-                // Draw gradient text
-                const gradient = ctx.createLinearGradient(screenX - 200, screenY, screenX + 200, screenY);
-                gradient.addColorStop(0, '#FF0000');
-                gradient.addColorStop(0.16, '#FF7F00');
-                gradient.addColorStop(0.33, '#FFFF00');
-                gradient.addColorStop(0.5, '#00FF00');
-                gradient.addColorStop(0.66, '#0000FF');
-                gradient.addColorStop(0.83, '#4B0082');
-                gradient.addColorStop(1, '#9400D3');
-                ctx.fillStyle = gradient;
-                ctx.fillText("Clara's Cat Town", screenX, screenY);
+                ctx.drawImage(
+                    titleImage,
+                    screenX - titleWidth / 2,
+                    screenY - titleHeight / 2,
+                    titleWidth,
+                    titleHeight
+                );
 
                 ctx.restore();
             }
@@ -4226,7 +4237,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.5', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.6', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
