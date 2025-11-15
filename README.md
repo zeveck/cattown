@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.4
+## Version 0.2.5
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,12 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.5
+- **Compass Visual Enhancement**: Compass now always glows for better visibility
+  - Golden glow visible during both day and night
+  - Increased glow intensity (shadowBlur: 15) for compass needle border
+  - Consistent golden color across both compass states (thumbnail and needle)
 
 ### v0.2.4
 - **Idle Animation Tuning**: Refined cat idle animations for more natural behavior

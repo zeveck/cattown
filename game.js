@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.4
+// Clara's Cat Town - Version 0.2.5
 
 // Game Configuration
 const CONFIG = {
@@ -1194,11 +1194,12 @@ class Chest {
             // Basic chests - always base size
             this.sizeMultiplier = 1.0;
         } else {
-            // Firefly chests - always larger than basic, with random variation
-            const maxSizeMultiplier = 1 + (this.tier * 0.3); // 1.3, 1.6, 1.9, 2.2, 2.5
-            const minSizeMultiplier = 1.2; // Always at least 20% larger than basic chests
-            // Use squared random to make larger sizes rare (skewed distribution)
-            this.sizeMultiplier = minSizeMultiplier + Math.random() * Math.random() * (maxSizeMultiplier - minSizeMultiplier);
+            // Firefly chests - 25% larger for each tier, with slight random variation
+            // Tier 1: 1.25, Tier 2: 1.5, Tier 3: 1.75, Tier 4: 2.0, Tier 5: 2.25
+            const baseSize = 1.0 + (this.tier * 0.25);
+            // Add ±10% random variation
+            const variation = (Math.random() - 0.5) * 0.2 * baseSize;
+            this.sizeMultiplier = baseSize + variation;
         }
 
         this.width = baseWidth * this.sizeMultiplier;
@@ -3652,12 +3653,10 @@ function drawSunMoon(ctx) {
             );
             ctx.restore();
 
-            // Border (with glow at night)
+            // Border (with glow)
             ctx.save();
-            if (gameState.isNight) {
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
-            }
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
             ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -3739,13 +3738,11 @@ function drawSunMoon(ctx) {
 
             ctx.restore();
 
-            // Compass border (with glow at night)
+            // Compass border (with glow)
             ctx.save();
-            if (gameState.isNight) {
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = 'rgba(100, 80, 60, 0.8)';
-            }
-            ctx.strokeStyle = 'rgba(100, 80, 60, 0.9)';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(218, 165, 32, 0.9)'; // Goldenrod glow
+            ctx.strokeStyle = 'rgba(218, 165, 32, 0.95)';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
@@ -4229,7 +4226,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.4', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.5', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
