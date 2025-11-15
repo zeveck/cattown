@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.2
+// Clara's Cat Town - Version 0.2.4
 
 // Game Configuration
 const CONFIG = {
@@ -372,6 +372,11 @@ class Player {
         this.walkingFrameCounter = 0;
         this.isMoving = false;
         this.facingRight = false;
+        // Idle animation state (for cat form)
+        this.idleTime = 0;
+        this.idleAnimationType = null; // 'yawn' or 'lick'
+        this.idleAnimationStartTime = 0;
+        this.idleAnimationDuration = 1200; // 1.2 seconds for idle animations
     }
 
     update() {
@@ -419,6 +424,32 @@ class Player {
         } else {
             this.walkingFrameCounter = 0;
             this.walkingFrame = 0;
+        }
+
+        // Idle animation logic for cat form
+        if (this.isCat && !moved) {
+            // Increment idle time
+            this.idleTime += 16; // Approximate ms per frame at 60 FPS
+
+            // Check if current idle animation has finished
+            if (this.idleAnimationType && Date.now() - this.idleAnimationStartTime > this.idleAnimationDuration) {
+                this.idleAnimationType = null;
+            }
+
+            // Randomly trigger a new idle animation after being idle for a while
+            if (!this.idleAnimationType && this.idleTime > 6000) {
+                // Random chance to trigger animation (about 1% chance per frame when idle > 6s)
+                if (Math.random() < 0.01) {
+                    // Randomly choose yawn or lick
+                    this.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
+                    this.idleAnimationStartTime = Date.now();
+                    this.idleTime = 0; // Reset idle timer to enforce gap between animations
+                }
+            }
+        } else {
+            // Reset idle state when moving or not a cat
+            this.idleTime = 0;
+            this.idleAnimationType = null;
         }
 
         // Track that player has moved (for idle menu logic)
@@ -662,10 +693,18 @@ class Player {
         ctx.ellipse(x + 15, y + 25, 10, 3, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Choose the appropriate sprite based on movement
+        // Choose the appropriate sprite based on movement and idle animations
         let catSprite = catImage; // Default idle
+
         if (this.isMoving) {
+            // Walking animation
             catSprite = this.walkingFrame === 0 ? catWalking1 : catWalking2;
+        } else if (this.idleAnimationType === 'yawn') {
+            // Yawning idle animation
+            catSprite = catYawning;
+        } else if (this.idleAnimationType === 'lick') {
+            // Licking paw idle animation
+            catSprite = catLickingPaw;
         }
 
         // Draw cat sprite with optional flip and purple glow at night
@@ -1791,6 +1830,10 @@ const catWalking1 = new Image();
 catWalking1.src = 'graphics/cat-walking1.png';
 const catWalking2 = new Image();
 catWalking2.src = 'graphics/cat-walking2.png';
+const catYawning = new Image();
+catYawning.src = 'graphics/cat-yawning.png';
+const catLickingPaw = new Image();
+catLickingPaw.src = 'graphics/cat-licking-paw.png';
 
 // Load house images - 4 types
 const houseImages = {
@@ -1965,6 +2008,12 @@ catWalking1.onerror = () => { console.error('Failed to load cat-walking1.png'); 
 
 catWalking2.onload = imageLoadHandler;
 catWalking2.onerror = () => { console.error('Failed to load cat-walking2.png'); imageLoadHandler(); };
+
+catYawning.onload = imageLoadHandler;
+catYawning.onerror = () => { console.error('Failed to load cat-yawning.png'); imageLoadHandler(); };
+
+catLickingPaw.onload = imageLoadHandler;
+catLickingPaw.onerror = () => { console.error('Failed to load cat-licking-paw.png'); imageLoadHandler(); };
 
 houseImages.house1.onload = imageLoadHandler;
 houseImages.house1.onerror = () => { console.error('Failed to load house1.png'); imageLoadHandler(); };
@@ -4180,7 +4229,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.2', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.4', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

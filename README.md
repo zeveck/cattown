@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.2
+## Version 0.2.4
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,20 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.4
+- **Idle Animation Tuning**: Refined cat idle animations for more natural behavior
+  - Increased idle time threshold from 3s to 6s before animations can trigger
+  - Reduced trigger frequency (1% chance vs 2% per frame)
+  - Shortened animation duration from 2s to 1.2s for snappier feel
+  - Added proper cooldown - idle timer resets after each animation to enforce 6s+ gap between animations
+  - Animations now feel occasional and charming rather than repetitive
+
+### v0.2.3
+- **Cat Idle Animations**: Cat now performs charming idle animations when sitting still
+  - Randomly yawns or licks paw after being idle for a few seconds
+  - Animations play for 1.2 seconds before returning to normal idle pose
+  - Adds personality and life to the cat companion
 
 ### v0.2.2
 - **Cat Fountain Feature**: Central fountain now serves as the village landmark
