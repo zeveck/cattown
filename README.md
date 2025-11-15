@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.7
+## Version 0.2.8
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,16 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.8
+- **House Interior Enhancements**: Added textured floorboard graphic to house interior
+  - Floorboards tile at 128x128 pixels for seamless repeating pattern
+  - Only appears in room interior, excludes furniture shop UI area
+  - Replaces solid color floor with realistic wood texture
+- **Visual Polish**: Removed shadow ellipse from cat sprites
+  - Cat sprites have built-in shadows or don't need separate shadows
+  - Girl/human form retains shadow for depth
+  - Fixes misplaced shadow during cat sleep animation
 
 ### v0.2.7
 - **Bug Fixes**:

@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.7
+// Clara's Cat Town - Version 0.2.8
 
 // Game Configuration
 const CONFIG = {
@@ -1931,6 +1931,10 @@ treeImages[2].src = 'graphics/trees/pinetree.png';
 const grassTileImage = new Image();
 grassTileImage.src = 'graphics/grass_tile.jpg';
 
+// Load floorboards
+const floorboardsImage = new Image();
+floorboardsImage.src = 'graphics/floorboards.png';
+
 // Load firefly image
 const fireflyImage = new Image();
 fireflyImage.src = 'graphics/fireflies/ChatGPT Image Nov 14, 2025, 11_25_29 PM.png';
@@ -1985,7 +1989,7 @@ const titleImage = new Image();
 titleImage.src = 'graphics/title.png';
 
 let imagesLoaded = 0;
-const totalImages = 45; // girl, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 firefly, 2 jars, 1 cat fountain, 1 title
+const totalImages = 46; // girl, 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -2127,6 +2131,9 @@ treeImages[2].onerror = () => { console.error('Failed to load pinetree.png'); im
 
 grassTileImage.onload = imageLoadHandler;
 grassTileImage.onerror = () => { console.error('Failed to load grass_tile.jpg'); imageLoadHandler(); };
+
+floorboardsImage.onload = imageLoadHandler;
+floorboardsImage.onerror = () => { console.error('Failed to load floorboards.png'); imageLoadHandler(); };
 
 fireflyImage.onload = imageLoadHandler;
 fireflyImage.onerror = () => { console.error('Failed to load firefly.png'); imageLoadHandler(); };
@@ -2796,9 +2803,34 @@ function drawHouseInterior(ctx) {
     ctx.fillStyle = '#2d2d2d';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw room floor
-    ctx.fillStyle = '#F5DEB3'; // Wooden floor
-    ctx.fillRect(roomX, roomY, roomWidth, roomHeight);
+    // Draw room floor with tiled floorboards (scaled down)
+    if (floorboardsImage.complete) {
+        // Scale down the floorboard tiles for better tiling
+        const tileSize = 160; // Tile size for repeating pattern
+
+        // Only tile within the room interior (not the bottom UI area)
+        for (let y = roomY; y < roomY + roomHeight; y += tileSize) {
+            for (let x = roomX; x < roomX + roomWidth; x += tileSize) {
+                // Calculate how much of the tile to draw (crop at edges, don't scale)
+                const drawWidth = Math.min(tileSize, roomX + roomWidth - x);
+                const drawHeight = Math.min(tileSize, roomY + roomHeight - y);
+
+                // Calculate source crop proportionally
+                const sourceWidth = (drawWidth / tileSize) * floorboardsImage.width;
+                const sourceHeight = (drawHeight / tileSize) * floorboardsImage.height;
+
+                ctx.drawImage(
+                    floorboardsImage,
+                    0, 0, sourceWidth, sourceHeight, // Source crop (not full image at edges)
+                    x, y, drawWidth, drawHeight // Destination (maintain size, crop instead of scale)
+                );
+            }
+        }
+    } else {
+        // Fallback to solid color if image not loaded
+        ctx.fillStyle = '#F5DEB3';
+        ctx.fillRect(roomX, roomY, roomWidth, roomHeight);
+    }
 
     // Draw walls
     ctx.fillStyle = '#D2B48C';
@@ -4241,7 +4273,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.7', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.8', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
