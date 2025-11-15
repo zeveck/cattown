@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.8
+// Clara's Cat Town - Version 0.2.9
 
 // Game Configuration
 const CONFIG = {
@@ -66,6 +66,8 @@ const gameState = {
     furnitureRotation: 0,
     lastHouseExitTime: 0,
     isDraggingSlider: false,
+    draggedSliderType: null, // 'color' or 'size'
+    draggedFurnitureType: null, // which furniture item's slider
     lastActivityTime: Date.now(),
     controlsPanelShown: false,
     hasPlayerMoved: false, // Track if player has moved since game start
@@ -433,7 +435,18 @@ class Player {
 
             // After 20 seconds, cat falls asleep and stays asleep
             if (this.idleTime > 20000) {
-                this.idleAnimationType = 'sleep';
+                // Only set up sleep state once
+                if (this.idleAnimationType !== 'sleep') {
+                    this.idleAnimationType = 'sleep';
+
+                    // Arrange companions in a ring around the sleeping cat
+                    gameState.companions.forEach((companion, index) => {
+                        const angle = (index / gameState.companions.length) * Math.PI * 2;
+                        const radius = 80;
+                        companion.targetX = this.x + Math.cos(angle) * radius;
+                        companion.targetY = this.y + Math.sin(angle) * radius;
+                    });
+                }
             }
             // Check if current idle animation has finished (but not sleep - sleep persists)
             else if (this.idleAnimationType && this.idleAnimationType !== 'sleep' && Date.now() - this.idleAnimationStartTime > this.idleAnimationDuration) {
@@ -879,16 +892,30 @@ class Companion {
     update() {
         if (!gameState.player) return;
 
-        // Follow player with some distance
-        const targetDist = 50 + gameState.companions.indexOf(this) * 30;
-        const dx = gameState.player.x - this.x;
-        const dy = gameState.player.y - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // If player is sleeping, companions form a ring around them
+        if (gameState.player.isCat && gameState.player.idleAnimationType === 'sleep') {
+            // Move toward ring position
+            const dx = this.targetX - this.x;
+            const dy = this.targetY - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance > targetDist) {
-            const angle = Math.atan2(dy, dx);
-            this.x += Math.cos(angle) * this.speed;
-            this.y += Math.sin(angle) * this.speed;
+            if (distance > 5) { // Close enough threshold
+                const angle = Math.atan2(dy, dx);
+                this.x += Math.cos(angle) * this.speed * 0.5; // Move slowly
+                this.y += Math.sin(angle) * this.speed * 0.5;
+            }
+        } else {
+            // Follow player with some distance
+            const targetDist = 50 + gameState.companions.indexOf(this) * 30;
+            const dx = gameState.player.x - this.x;
+            const dy = gameState.player.y - this.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > targetDist) {
+                const angle = Math.atan2(dy, dx);
+                this.x += Math.cos(angle) * this.speed;
+                this.y += Math.sin(angle) * this.speed;
+            }
         }
 
         this.bobOffset += 0.1;
@@ -1339,7 +1366,7 @@ class Chest {
             // Large chest - show firefly requirement
             const canOpen = this.canOpen();
             const text1 = `${this.fireflyCost} Fireflies`;
-            const text2 = canOpen ? 'Press F to open' : 'Need more fireflies';
+            const text2 = canOpen ? 'Press E to open' : 'Need more fireflies';
 
             // Measure both texts to get max width
             const text1Width = ctx.measureText(text1).width;
@@ -2366,10 +2393,12 @@ canvas.addEventListener('mousemove', (e) => {
         gameState.mousePos.y = e.clientY - rect.top;
 
         // Handle slider dragging
-        if (gameState.isDraggingSlider) {
-            const x = gameState.mousePos.x;
-            const y = gameState.mousePos.y;
-            handleFurnitureShopClick(x, y);
+        if (gameState.isDraggingSlider && gameState.draggedFurnitureType) {
+            e.preventDefault(); // Prevent default drag behavior
+            updateSliderValue(gameState.mousePos.x, gameState.mousePos.y);
+        } else {
+            // Not dragging - ensure default cursor
+            canvas.style.cursor = 'default';
         }
 
         // Handle furniture dragging
@@ -2408,66 +2437,41 @@ canvas.addEventListener('mousedown', (e) => {
     const clickY = e.clientY - rect.top;
 
     if (gameState.isInsideHouse) {
-        // Check if clicking on a slider
-        const shopX = 100;
-        const shopY = 100;
-        const itemWidth = 120;
-        const itemHeight = 120;
-        const gap = 10;
-        const columns = 2;
-        const columnGap = 10;
-        const itemsPerColumn = Math.ceil(gameState.furnitureShop.length / columns);
-
-        for (let i = 0; i < gameState.furnitureShop.length; i++) {
-            const furniture = gameState.furnitureShop[i];
-            const column = Math.floor(i / itemsPerColumn);
-            const row = i % itemsPerColumn;
-            const itemX = shopX + column * (itemWidth + columnGap);
-            const itemY = shopY + row * (itemHeight + gap);
-            const sliderWidth = itemWidth - 20;
-            const sliderHeight = 8;
-
-            // Check color slider
-            const colorSliderX = itemX + 10;
-            const colorSliderY = itemY + 65;
-
-            if (clickX >= colorSliderX && clickX <= colorSliderX + sliderWidth &&
-                clickY >= colorSliderY - 5 && clickY <= colorSliderY + sliderHeight + 5) {
-                gameState.isDraggingSlider = true;
-                return;
-            }
-
-            // Check size slider
-            const sizeSliderX = itemX + 10;
-            const sizeSliderY = itemY + 90;
-
-            if (clickX >= sizeSliderX && clickX <= sizeSliderX + sliderWidth &&
-                clickY >= sizeSliderY - 5 && clickY <= sizeSliderY + sliderHeight + 5) {
-                gameState.isDraggingSlider = true;
-                return;
-            }
+        // Try handling furniture shop clicks (including sliders)
+        if (handleFurnitureShopClick(clickX, clickY, true)) {
+            e.preventDefault(); // Prevent default drag behavior
+            return; // Click was handled by shop
         }
 
-        // Check if clicking on placed furniture (but not on shop)
+        // Check if clicking on placed furniture
         // ONLY if we're not currently placing furniture from the shop
         if (!gameState.selectedFurnitureType) {
-            const shopWidth = (itemWidth * columns) + columnGap + 20;
-            const shopHeight = (itemHeight + gap) * itemsPerColumn + 50;
-            if (clickX < shopX - 10 || clickX > shopX + shopWidth ||
-                clickY < shopY - 40 || clickY > shopY + shopHeight) {
-                const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
-                if (clickedFurniture) {
-                    gameState.selectedPlacedFurniture = clickedFurniture;
-                    gameState.isDraggingFurniture = true;
-                }
+            const clickedFurniture = checkPlacedFurnitureClick(clickX, clickY);
+            if (clickedFurniture) {
+                gameState.selectedPlacedFurniture = clickedFurniture;
+                gameState.isDraggingFurniture = true;
             }
         }
     }
 });
 
 canvas.addEventListener('mouseup', (e) => {
+    // Always reset state and cursor on mouseup
     gameState.isDraggingSlider = false;
+    gameState.draggedSliderType = null;
+    gameState.draggedFurnitureType = null;
     gameState.isDraggingFurniture = false;
+    canvas.style.cursor = 'default';
+});
+
+// Also listen for mouseup on document to catch releases outside canvas
+document.addEventListener('mouseup', (e) => {
+    // Always reset all drag states and cursor on any mouseup
+    gameState.isDraggingSlider = false;
+    gameState.draggedSliderType = null;
+    gameState.draggedFurnitureType = null;
+    gameState.isDraggingFurniture = false;
+    canvas.style.cursor = 'default';
 });
 
 canvas.addEventListener('click', (e) => {
@@ -2691,7 +2695,7 @@ function enterHouse(building) {
     // Room dimensions match drawHouseInterior
     const margin = 10;
     const roomWidth = canvas.width - (margin * 2);
-    const roomHeight = canvas.height - (margin * 2) - 140;
+    const roomHeight = canvas.height - (margin * 2) - 200;
     const roomX = margin;
     const roomY = margin;
     const wallThickness = 35;
@@ -2715,10 +2719,10 @@ function exitHouse() {
 
 // Draw house interior
 function drawHouseInterior(ctx) {
-    // Define interior room dimensions - reduced height by 140px total
+    // Define interior room dimensions - reduced height by 200px for furniture shop
     const margin = 10; // Very small margin to maximize room size
     const roomWidth = canvas.width - (margin * 2);  // 1180px (1200 - 20)
-    const roomHeight = canvas.height - (margin * 2) - 140; // 640px (800 - 20 - 140)
+    const roomHeight = canvas.height - (margin * 2) - 200; // 580px (800 - 20 - 200)
     const roomX = margin;  // Start at x=10
     const roomY = margin;  // Start at y=10
     const wallThickness = 35;
@@ -2761,6 +2765,46 @@ function drawHouseInterior(ctx) {
                 gameState.player.walkingFrameCounter = 0;
                 gameState.player.walkingFrame = 0;
             }
+
+            // Idle animation logic for cat inside house
+            if (!moved) {
+                // Increment idle time
+                gameState.player.idleTime += 16; // Approximate ms per frame at 60 FPS
+
+                // After 20 seconds, cat falls asleep and stays asleep
+                if (gameState.player.idleTime > 20000) {
+                    // Only set up sleep state once
+                    if (gameState.player.idleAnimationType !== 'sleep') {
+                        gameState.player.idleAnimationType = 'sleep';
+
+                        // Arrange companions in a ring around the sleeping cat (using house coordinates)
+                        gameState.companions.forEach((companion, index) => {
+                            const angle = (index / gameState.companions.length) * Math.PI * 2;
+                            const radius = 80;
+                            companion.houseTargetX = gameState.player.houseX + Math.cos(angle) * radius;
+                            companion.houseTargetY = gameState.player.houseY + Math.sin(angle) * radius;
+                        });
+                    }
+                }
+                // Check if current idle animation has finished (but not sleep - sleep persists)
+                else if (gameState.player.idleAnimationType && gameState.player.idleAnimationType !== 'sleep' && Date.now() - gameState.player.idleAnimationStartTime > gameState.player.idleAnimationDuration) {
+                    gameState.player.idleAnimationType = null;
+                }
+                // Randomly trigger a new idle animation after being idle for a while (only if not sleeping)
+                else if (!gameState.player.idleAnimationType && gameState.player.idleTime > 6000 && gameState.player.idleTime < 20000) {
+                    // Random chance to trigger animation (about 1% chance per frame when idle > 6s)
+                    if (Math.random() < 0.01) {
+                        // Randomly choose yawn or lick
+                        gameState.player.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
+                        gameState.player.idleAnimationStartTime = Date.now();
+                        // Don't reset idleTime - let it keep accumulating toward sleep threshold
+                    }
+                }
+            } else {
+                // Reset idle state when moving
+                gameState.player.idleTime = 0;
+                gameState.player.idleAnimationType = null;
+            }
         }
 
         // Proper collision with walls - keep player fully inside room
@@ -2785,15 +2829,32 @@ function drawHouseInterior(ctx) {
             companion.houseY = gameState.player.houseY + 50;
         }
 
-        const targetDist = 50 + gameState.companions.indexOf(companion) * 30;
-        const dx = gameState.player.houseX - companion.houseX;
-        const dy = gameState.player.houseY - companion.houseY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // If player is sleeping, companions form a ring around them
+        if (gameState.player.isCat && gameState.player.idleAnimationType === 'sleep') {
+            // Move toward ring position
+            if (companion.houseTargetX !== undefined && companion.houseTargetY !== undefined) {
+                const dx = companion.houseTargetX - companion.houseX;
+                const dy = companion.houseTargetY - companion.houseY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance > targetDist) {
-            const angle = Math.atan2(dy, dx);
-            companion.houseX += Math.cos(angle) * companion.speed;
-            companion.houseY += Math.sin(angle) * companion.speed;
+                if (distance > 5) { // Close enough threshold
+                    const angle = Math.atan2(dy, dx);
+                    companion.houseX += Math.cos(angle) * companion.speed * 0.5; // Move slowly
+                    companion.houseY += Math.sin(angle) * companion.speed * 0.5;
+                }
+            }
+        } else {
+            // Follow player normally
+            const targetDist = 50 + gameState.companions.indexOf(companion) * 30;
+            const dx = gameState.player.houseX - companion.houseX;
+            const dy = gameState.player.houseY - companion.houseY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > targetDist) {
+                const angle = Math.atan2(dy, dx);
+                companion.houseX += Math.cos(angle) * companion.speed;
+                companion.houseY += Math.sin(angle) * companion.speed;
+            }
         }
 
         companion.bobOffset += 0.1;
@@ -2989,10 +3050,16 @@ function drawHouseInterior(ctx) {
 
         // Draw player sprite
         if (gameState.player.isCat) {
-            // Select sprite based on movement state
+            // Select sprite based on movement and idle animation state
             let catSprite = catImage; // Default idle
             if (gameState.player.isMoving) {
                 catSprite = gameState.player.walkingFrame === 0 ? catWalking1 : catWalking2;
+            } else if (gameState.player.idleAnimationType === 'sleep') {
+                catSprite = catSleeping;
+            } else if (gameState.player.idleAnimationType === 'yawn') {
+                catSprite = catYawning;
+            } else if (gameState.player.idleAnimationType === 'lick') {
+                catSprite = catLickingPaw;
             }
 
             if (catSprite.complete) {
@@ -3132,84 +3199,124 @@ function shiftHue(hexColor, hueShift) {
 
 // Draw furniture shop
 function drawFurnitureShop(ctx) {
-    const shopX = 100;
-    const shopY = 100;
-    const itemWidth = 120;
-    const itemHeight = 120; // Increased to fit both sliders
-    const gap = 10;
-    const columns = 2;
-    const columnGap = 10;
+    // Position shop horizontally below the room
+    const margin = 10;
+    const roomWidth = canvas.width - (margin * 2);
+    const roomHeight = canvas.height - (margin * 2) - 200;
+    const roomY = margin;
 
-    // Calculate shop background size for 2 columns
-    const itemsPerColumn = Math.ceil(gameState.furnitureShop.length / columns);
-    const shopWidth = (itemWidth * columns) + columnGap + 20;
-    const shopHeight = (itemHeight + gap) * itemsPerColumn + 50;
+    const shopY = roomY + roomHeight + 40; // 40px below room for better spacing
+    const shopX = margin + 10;
+    const itemWidth = 110; // Increased for better usability
+    const itemHeight = 140; // Increased for better usability
+    const gap = 12; // Increased gap between items
 
-    // Shop background
+    // Calculate shop background size for horizontal layout
+    const shopWidth = (itemWidth + gap) * gameState.furnitureShop.length + 20;
+    const shopHeight = itemHeight + 40;
+
+    // Shop background - properly positioned below room
     ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.fillRect(shopX - 10, shopY - 40, shopWidth, shopHeight);
+    ctx.beginPath();
+    ctx.roundRect(shopX - 15, shopY - 30, shopWidth, shopHeight, 10);
+    ctx.fill();
 
     // Shop title
     ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 18px Arial';
+    ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'left';
     ctx.fillText('Furniture Shop', shopX, shopY - 15);
 
-    // Draw shop items in 2 columns
+    // Draw shop items horizontally
     for (let i = 0; i < gameState.furnitureShop.length; i++) {
         const furniture = gameState.furnitureShop[i];
-        const column = Math.floor(i / itemsPerColumn);
-        const row = i % itemsPerColumn;
-        const x = shopX + column * (itemWidth + columnGap);
-        const y = shopY + row * (itemHeight + gap);
+        const x = shopX + i * (itemWidth + gap);
+        const y = shopY;
 
-        // Item background
+        // Item background with rounded corners
         const isSelected = gameState.selectedFurnitureType === furniture.type;
+        const cornerRadius = 8;
         ctx.fillStyle = isSelected ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255, 255, 255, 0.1)';
-        ctx.fillRect(x, y, itemWidth, itemHeight);
+        ctx.beginPath();
+        ctx.roundRect(x, y, itemWidth, itemHeight, cornerRadius);
+        ctx.fill();
 
-        // Get current hue for this furniture type
+        // Get current hue and size
         const currentHue = gameState.furnitureHues[furniture.type] || 0;
+        const currentSize = gameState.furnitureSizes[furniture.type] || 1.0;
 
-        // Furniture preview with image and hue shift
+        // Furniture preview with more padding (bigger icon with rotation)
+        const previewSize = 65;
+        const currentRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
         const furnitureImg = furnitureImages[furniture.type];
+
+        ctx.save();
+        // Center the rotation
+        ctx.translate(x + 8 + previewSize / 2, y + 8 + previewSize / 2);
+        ctx.rotate((currentRotation * Math.PI) / 180);
+
         if (furnitureImg && furnitureImg.complete) {
-            ctx.save();
             ctx.filter = `hue-rotate(${currentHue}deg)`;
-            ctx.drawImage(furnitureImg, x + 10, y + 10, furniture.width / 2, furniture.height / 2);
-            ctx.restore();
+            ctx.drawImage(furnitureImg, -previewSize / 2, -previewSize / 2, previewSize, previewSize);
         } else {
-            // Fallback to colored rectangle
             const shiftedColor = shiftHue(furniture.color, currentHue);
             ctx.fillStyle = shiftedColor;
-            ctx.fillRect(x + 10, y + 10, furniture.width / 2, furniture.height / 2);
+            ctx.fillRect(-previewSize / 2, -previewSize / 2, previewSize, previewSize);
         }
+        ctx.restore();
 
-        // Furniture info
+        // Furniture name (moved down more)
         ctx.fillStyle = '#FFF';
-        ctx.font = 'bold 14px Arial';
+        ctx.font = 'bold 11px Arial';
         ctx.textAlign = 'left';
-        ctx.fillText(furniture.name, x + 60, y + 20);
+        ctx.fillText(furniture.name.substring(0, 9), x + 8, y + 85);
 
-        ctx.fillStyle = '#00FF00';
-        ctx.font = 'bold 12px Arial';
-        ctx.fillText('FREE', x + 60, y + 35);
+        // Rotate button (circular arrow)
+        const rotateButtonX = x + itemWidth - 20;
+        const rotateButtonY = y + 15;
+        const rotateButtonRadius = 10;
 
-        // Color slider
-        const colorSliderX = x + 10;
-        const colorSliderY = y + 65;
+        ctx.fillStyle = 'rgba(100, 100, 100, 0.8)';
+        ctx.beginPath();
+        ctx.arc(rotateButtonX, rotateButtonY, rotateButtonRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#FFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(rotateButtonX, rotateButtonY, 6, 0, 1.5 * Math.PI);
+        ctx.stroke();
+
+        // Arrow tip
+        ctx.beginPath();
+        ctx.moveTo(rotateButtonX, rotateButtonY - 6);
+        ctx.lineTo(rotateButtonX - 3, rotateButtonY - 9);
+        ctx.lineTo(rotateButtonX + 3, rotateButtonY - 9);
+        ctx.closePath();
+        ctx.fillStyle = '#FFF';
+        ctx.fill();
+
+        // Color slider with more space (moved down to fit bigger icon)
         const sliderWidth = itemWidth - 20;
-        const sliderHeight = 8;
+        const sliderHeight = 10; // Increased from 6 for easier interaction
+        const colorSliderX = x + 10;
+        const colorSliderY = y + 98;
 
-        // Slider track (rainbow gradient)
+        // Rounded slider background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(colorSliderX, colorSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.fill();
+
         const colorGradient = ctx.createLinearGradient(colorSliderX, colorSliderY, colorSliderX + sliderWidth, colorSliderY);
-        for (let h = 0; h <= 360; h += 30) {
+        for (let h = 0; h <= 360; h += 60) {
             colorGradient.addColorStop(h / 360, `hsl(${h}, 80%, 50%)`);
         }
         ctx.fillStyle = colorGradient;
-        ctx.fillRect(colorSliderX, colorSliderY, sliderWidth, sliderHeight);
+        ctx.beginPath();
+        ctx.roundRect(colorSliderX, colorSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.fill();
 
-        // Color slider handle
         const colorHandleX = colorSliderX + (currentHue / 360) * sliderWidth;
         ctx.fillStyle = '#FFF';
         ctx.strokeStyle = '#000';
@@ -3219,25 +3326,25 @@ function drawFurnitureShop(ctx) {
         ctx.fill();
         ctx.stroke();
 
-        // Color label
-        ctx.fillStyle = '#AAA';
-        ctx.font = '9px Arial';
-        ctx.fillText('Color', x + 10, y + 60);
-
-        // Size slider
+        // Size slider with more space (moved down to fit bigger icon)
         const sizeSliderX = x + 10;
-        const sizeSliderY = y + 90;
-        const currentSize = gameState.furnitureSizes[furniture.type] || 1.0;
+        const sizeSliderY = y + 118;
 
-        // Size slider track (gradient from small to large)
+        // Rounded slider background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.roundRect(sizeSliderX, sizeSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.fill();
+
         const sizeGradient = ctx.createLinearGradient(sizeSliderX, sizeSliderY, sizeSliderX + sliderWidth, sizeSliderY);
         sizeGradient.addColorStop(0, '#666');
         sizeGradient.addColorStop(1, '#FFF');
         ctx.fillStyle = sizeGradient;
-        ctx.fillRect(sizeSliderX, sizeSliderY, sliderWidth, sliderHeight);
+        ctx.beginPath();
+        ctx.roundRect(sizeSliderX, sizeSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.fill();
 
-        // Size slider handle
-        const sizeHandleX = sizeSliderX + ((currentSize - 0.5) / 1.5) * sliderWidth; // 0.5 to 2.0 range
+        const sizeHandleX = sizeSliderX + ((currentSize - 0.5) / 1.5) * sliderWidth;
         ctx.fillStyle = '#FFF';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 2;
@@ -3245,77 +3352,152 @@ function drawFurnitureShop(ctx) {
         ctx.arc(sizeHandleX, sizeSliderY + sliderHeight / 2, 6, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+    }
+}
 
-        // Size label
-        ctx.fillStyle = '#AAA';
-        ctx.font = '9px Arial';
-        ctx.fillText('Size', x + 10, y + 85);
+// Update slider value during drag
+function updateSliderValue(mouseX, mouseY) {
+    if (!gameState.isDraggingSlider || !gameState.draggedFurnitureType) return;
+
+    const margin = 10;
+    const roomHeight = canvas.height - (margin * 2) - 200;
+    const roomY = margin;
+    const shopY = roomY + roomHeight + 40;
+    const shopX = margin + 10;
+    const itemWidth = 110;
+    const gap = 12;
+
+    // Find which furniture item index
+    const furnitureIndex = gameState.furnitureShop.findIndex(f => f.type === gameState.draggedFurnitureType);
+    if (furnitureIndex === -1) return;
+
+    const x = shopX + furnitureIndex * (itemWidth + gap);
+    const sliderWidth = itemWidth - 20;
+    const sliderX = x + 10;
+
+    if (gameState.draggedSliderType === 'color') {
+        const colorSliderY = shopY + 98;
+        // Clamp mouseX to slider bounds
+        const clampedX = Math.max(sliderX, Math.min(mouseX, sliderX + sliderWidth));
+        const hue = ((clampedX - sliderX) / sliderWidth) * 360;
+        gameState.furnitureHues[gameState.draggedFurnitureType] = Math.max(0, Math.min(360, hue));
+
+        // Update selected furniture if applicable
+        if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === gameState.draggedFurnitureType) {
+            const furniture = gameState.furnitureShop.find(f => f.type === gameState.draggedFurnitureType);
+            gameState.selectedPlacedFurniture.hue = hue;
+            gameState.selectedPlacedFurniture.color = shiftHue(furniture.color, hue);
+        }
+    } else if (gameState.draggedSliderType === 'size') {
+        const sizeSliderY = shopY + 118;
+        // Clamp mouseX to slider bounds
+        const clampedX = Math.max(sliderX, Math.min(mouseX, sliderX + sliderWidth));
+        const size = 0.5 + ((clampedX - sliderX) / sliderWidth) * 1.5;
+        gameState.furnitureSizes[gameState.draggedFurnitureType] = Math.max(0.5, Math.min(2.0, size));
+
+        // Update selected furniture if applicable
+        if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === gameState.draggedFurnitureType) {
+            gameState.selectedPlacedFurniture.size = size;
+        }
     }
 }
 
 // Handle furniture shop clicks
-function handleFurnitureShopClick(clickX, clickY) {
-    const shopX = 100;
-    const shopY = 100;
-    const itemWidth = 120;
-    const itemHeight = 120;
-    const gap = 10;
-    const columns = 2;
-    const columnGap = 10;
-    const itemsPerColumn = Math.ceil(gameState.furnitureShop.length / columns);
+// isMouseDown: true if called from mousedown, false if from click
+function handleFurnitureShopClick(clickX, clickY, isMouseDown = false) {
+    // Match new horizontal layout
+    const margin = 10;
+    const roomHeight = canvas.height - (margin * 2) - 200;
+    const roomY = margin;
+    const shopY = roomY + roomHeight + 40; // 40px below room for better spacing
+    const shopX = margin + 10;
+    const itemWidth = 110; // Increased for better usability
+    const itemHeight = 140; // Increased for better usability
+    const gap = 12; // Increased gap between items
 
     for (let i = 0; i < gameState.furnitureShop.length; i++) {
         const furniture = gameState.furnitureShop[i];
-        const column = Math.floor(i / itemsPerColumn);
-        const row = i % itemsPerColumn;
-        const itemX = shopX + column * (itemWidth + columnGap);
-        const itemY = shopY + row * (itemHeight + gap);
+        const x = shopX + i * (itemWidth + gap);
+        const y = shopY;
 
-        // Check if clicking on color slider
-        const colorSliderX = itemX + 10;
-        const colorSliderY = itemY + 65;
-        const sliderWidth = itemWidth - 20;
-        const sliderHeight = 8;
+        // Check if clicking on rotate button
+        const rotateButtonX = x + itemWidth - 20;
+        const rotateButtonY = y + 15;
+        const rotateButtonRadius = 10;
+        const distToRotateButton = Math.sqrt(
+            Math.pow(clickX - rotateButtonX, 2) + Math.pow(clickY - rotateButtonY, 2)
+        );
 
-        if (clickX >= colorSliderX && clickX <= colorSliderX + sliderWidth &&
-            clickY >= colorSliderY - 5 && clickY <= colorSliderY + sliderHeight + 5) {
-            // Update hue based on slider position
-            const hue = ((clickX - colorSliderX) / sliderWidth) * 360;
-            gameState.furnitureHues[furniture.type] = Math.max(0, Math.min(360, hue));
+        if (distToRotateButton <= rotateButtonRadius) {
+            // Rotate this furniture type's rotation by 45 degrees
+            const currentRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
+            gameState.furnitureHues[furniture.type + '_rotation'] = (currentRotation + 45) % 360;
 
             // If a placed furniture of this type is selected, update it too
             if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
-                gameState.selectedPlacedFurniture.hue = hue;
-                gameState.selectedPlacedFurniture.color = shiftHue(furniture.color, hue);
+                gameState.selectedPlacedFurniture.rotation = (gameState.selectedPlacedFurniture.rotation + 45) % 360;
             }
             return true;
         }
 
-        // Check if clicking on size slider
-        const sizeSliderX = itemX + 10;
-        const sizeSliderY = itemY + 90;
+        // ONLY handle sliders on mousedown, NOT on click
+        if (isMouseDown) {
+            // Check if clicking on color slider
+            const sliderWidth = itemWidth - 20;
+            const sliderHeight = 10;
+            const colorSliderX = x + 10;
+            const colorSliderY = y + 98;
 
-        if (clickX >= sizeSliderX && clickX <= sizeSliderX + sliderWidth &&
-            clickY >= sizeSliderY - 5 && clickY <= sizeSliderY + sliderHeight + 5) {
-            // Update size based on slider position (0.5 to 2.0 range)
-            const size = 0.5 + ((clickX - sizeSliderX) / sliderWidth) * 1.5;
-            gameState.furnitureSizes[furniture.type] = Math.max(0.5, Math.min(2.0, size));
+            if (clickX >= colorSliderX && clickX <= colorSliderX + sliderWidth &&
+                clickY >= colorSliderY - 5 && clickY <= colorSliderY + sliderHeight + 5) {
+                // Start dragging color slider
+                gameState.isDraggingSlider = true;
+                gameState.draggedSliderType = 'color';
+                gameState.draggedFurnitureType = furniture.type;
 
-            // If a placed furniture of this type is selected, update it too
-            if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
-                gameState.selectedPlacedFurniture.size = size;
+                // Update hue based on slider position
+                const hue = ((clickX - colorSliderX) / sliderWidth) * 360;
+                gameState.furnitureHues[furniture.type] = Math.max(0, Math.min(360, hue));
+
+                // If a placed furniture of this type is selected, update it too
+                if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
+                    gameState.selectedPlacedFurniture.hue = hue;
+                    gameState.selectedPlacedFurniture.color = shiftHue(furniture.color, hue);
+                }
+                return true;
             }
-            return true;
+
+            // Check if clicking on size slider
+            const sizeSliderX = x + 10;
+            const sizeSliderY = y + 118;
+
+            if (clickX >= sizeSliderX && clickX <= sizeSliderX + sliderWidth &&
+                clickY >= sizeSliderY - 5 && clickY <= sizeSliderY + sliderHeight + 5) {
+                // Start dragging size slider
+                gameState.isDraggingSlider = true;
+                gameState.draggedSliderType = 'size';
+                gameState.draggedFurnitureType = furniture.type;
+
+                // Update size based on slider position (0.5 to 2.0 range)
+                const size = 0.5 + ((clickX - sizeSliderX) / sliderWidth) * 1.5;
+                gameState.furnitureSizes[furniture.type] = Math.max(0.5, Math.min(2.0, size));
+
+                // If a placed furniture of this type is selected, update it too
+                if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
+                    gameState.selectedPlacedFurniture.size = size;
+                }
+                return true;
+            }
         }
 
-        // Check if clicking on furniture item (but not on slider areas)
-        // Only the top portion with the preview and name should select the item
-        if (clickX >= itemX && clickX <= itemX + itemWidth &&
-            clickY >= itemY && clickY <= itemY + 50) { // Only top 50px (preview and name area)
-            // Only select from shop if not clicking sliders - and clear placed selection
+        // Check if clicking on furniture item preview/name area
+        if (clickX >= x && clickX <= x + itemWidth &&
+            clickY >= y && clickY <= y + 80) { // Top area with preview and name (increased for bigger icon)
+            // Only select from shop if not clicking sliders/buttons - and clear placed selection
             gameState.selectedFurnitureType = furniture.type;
             gameState.selectedPlacedFurniture = null;
-            gameState.furnitureRotation = 0; // Reset rotation on selection
+            // Use stored rotation for this furniture type
+            gameState.furnitureRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
             return true;
         }
     }
@@ -3398,9 +3580,9 @@ function handleInteractions() {
     const player = gameState.player;
     const interactions = [];
 
-    // Collect all closed FREE chests in range (E key only opens tier 0)
+    // Collect all closed chests in range that can be opened (E key opens both free and firefly chests)
     for (let chest of gameState.chests) {
-        if (!chest.opened && chest.fireflyCost === 0 && chest.isNear(player, 80 * chest.sizeMultiplier)) {
+        if (!chest.opened && chest.canOpen() && chest.isNear(player, 80 * chest.sizeMultiplier)) {
             const dx = chest.x - player.x;
             const dy = chest.y - player.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -4273,7 +4455,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.8', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.9', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

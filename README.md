@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.8
+## Version 0.2.9
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,23 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.9
+- **Chest Interaction Improvement**: E key now opens all chests (both free and firefly chests)
+  - Unified interaction - no need to remember different keys
+  - Firefly chests open with E when you have enough fireflies
+- **Companion Sleep Behavior**: Companions now form a ring around the cat when sleeping
+  - Slowly move into position when cat falls asleep (after 20 seconds idle)
+  - Ring formation works both outside and inside houses
+  - Mimics the teleport-to-fountain ring formation
+- **Furniture Shop Redesign**: Shop menu moved to horizontal layout below exit door
+  - More compact, saves vertical space in house interior
+  - Each furniture item now has a rotate button for easy rotation
+  - Click the circular arrow icon to rotate furniture 90 degrees
+- **Indoor Idle Animations**: Cat idle animations now work inside houses
+  - Yawn and paw lick animations trigger when idle (6-20 seconds)
+  - Cat falls asleep after 20 seconds of being idle
+  - Companions form ring around sleeping cat inside houses too
 
 ### v0.2.8
 - **House Interior Enhancements**: Added textured floorboard graphic to house interior
