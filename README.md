@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.9
+## Version 0.2.10
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,18 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.10
+- **Save & Load System**: Comprehensive save/load functionality in the help menu
+  - Save Game button exports complete game state to JSON file
+  - Load Game button restores saved progress from JSON file
+  - Saves all critical game data: player state, level/XP, companions, chests, fireflies, furniture, time, camera position, and audio settings
+  - Timestamped save files with version tracking
+  - Full validation and error handling for save file integrity
+- **Furniture Shop Improvements**: Fixed slider interaction issues
+  - Sliders now properly disengage on mouse release
+  - Resolved cursor sticking behavior
+  - Improved click/drag event handling
 
 ### v0.2.9
 - **Chest Interaction Improvement**: E key now opens all chests (both free and firefly chests)

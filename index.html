@@ -73,6 +73,7 @@
             <div class="help-container">
                 <button id="helpButton" class="help-button">?</button>
                 <div id="controlsPanel" class="controls-panel" style="display: none;">
+                    <button id="closeControlsButton" class="close-controls-button">✕</button>
                     <div class="controls-title">Controls</div>
                     <div class="control-item"><strong>ESC</strong> - Close Menu</div>
                     <div class="control-item"><strong>Arrow Keys</strong> - Move</div>
@@ -90,6 +91,15 @@
                         <button id="muteButton" class="audio-button">🔊</button>
                         <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
                         <button id="nextButton" class="audio-button">⏭</button>
+                    </div>
+
+                    <div class="controls-divider"></div>
+
+                    <div class="controls-title">Save & Load</div>
+                    <div class="save-load-controls">
+                        <button id="saveButton" class="save-load-button">💾 Save Game</button>
+                        <button id="loadButton" class="save-load-button">📂 Load Game</button>
+                        <input type="file" id="loadFileInput" accept=".json" style="display: none;">
                     </div>
                 </div>
             </div>

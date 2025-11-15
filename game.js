@@ -94,7 +94,13 @@ const gameState = {
         { type: 'rug', name: 'Rug', cost: 40, color: '#DC143C', width: 100, height: 80 },
         { type: 'plant', name: 'Plant', cost: 25, color: '#228B22', width: 30, height: 40 },
         { type: 'lamp', name: 'Lamp', cost: 35, color: '#FFD700', width: 30, height: 50 }
-    ]
+    ],
+    notification: {
+        message: '',
+        visible: false,
+        fadeStartTime: 0,
+        duration: 3000 // 3 seconds
+    }
 };
 
 // Character Creation
@@ -303,6 +309,15 @@ if (helpButton && controlsPanel) {
     });
 }
 
+// Close button for controls panel
+const closeControlsButton = document.getElementById('closeControlsButton');
+if (closeControlsButton && controlsPanel) {
+    closeControlsButton.addEventListener('click', () => {
+        controlsPanel.style.display = 'none';
+        gameState.controlsPanelShown = false;
+    });
+}
+
 // Audio controls
 const muteButton = document.getElementById('muteButton');
 const volumeSlider = document.getElementById('volumeSlider');
@@ -348,6 +363,266 @@ if (muteButton && volumeSlider) {
             nextTrack();
         });
     }
+}
+
+// Notification system
+function showNotification(message, duration = 3000) {
+    gameState.notification.message = message;
+    gameState.notification.visible = true;
+    gameState.notification.fadeStartTime = Date.now();
+    gameState.notification.duration = duration;
+}
+
+// Save & Load functionality
+function saveGame() {
+    try {
+        const saveData = {
+            version: '0.2.10',
+            timestamp: new Date().toISOString(),
+            player: gameState.player ? {
+                x: gameState.player.x,
+                y: gameState.player.y,
+                health: gameState.player.health,
+                maxHealth: gameState.player.maxHealth,
+                isCat: gameState.player.isCat,
+                speed: gameState.player.speed,
+                baseSpeed: gameState.player.baseSpeed,
+                speedBoostEndTime: gameState.player.speedBoostEndTime,
+                facingRight: gameState.player.facingRight
+            } : null,
+            level: gameState.level,
+            xp: gameState.xp,
+            xpToNextLevel: gameState.xpToNextLevel,
+            catCash: gameState.catCash,
+            fireflyCount: gameState.fireflyCount,
+            gameTime: gameState.gameTime,
+            timeOfDay: gameState.timeOfDay,
+            isNight: gameState.isNight,
+            camera: { ...gameState.camera },
+            companions: gameState.companions.map(c => ({
+                x: c.x,
+                y: c.y,
+                type: c.type,
+                sizeMultiplier: c.sizeMultiplier
+            })),
+            droppedCompanions: gameState.droppedCompanions.map(dropped => ({
+                x: dropped.x,
+                y: dropped.y,
+                type: dropped.type,
+                isInHouse: dropped.isInHouse,
+                houseId: dropped.houseId,
+                houseX: dropped.houseX,
+                houseY: dropped.houseY,
+                companion: {
+                    x: dropped.companion.x,
+                    y: dropped.companion.y,
+                    type: dropped.companion.type,
+                    sizeMultiplier: dropped.companion.sizeMultiplier
+                }
+            })),
+            items: gameState.items.map(item => ({
+                x: item.x,
+                y: item.y,
+                type: item.type
+            })),
+            chests: gameState.chests.map(chest => ({
+                x: chest.x,
+                y: chest.y,
+                opened: chest.opened,
+                tier: chest.tier,
+                color: chest.color,
+                sizeMultiplier: chest.sizeMultiplier,
+                fireflyCost: chest.fireflyCost
+            })),
+            fireflies: gameState.fireflies.map(ff => ({
+                x: ff.x,
+                y: ff.y,
+                hue: ff.hue,
+                xpValue: ff.xpValue,
+                size: ff.size,
+                isRainbow: ff.isRainbow
+            })),
+            houseFurniture: gameState.houseFurniture,
+            furnitureHues: { ...gameState.furnitureHues },
+            furnitureSizes: { ...gameState.furnitureSizes },
+            isInsideHouse: gameState.isInsideHouse,
+            currentHouseId: gameState.currentHouseId,
+            audio: {
+                currentTrackIndex: currentTrackIndex,
+                volume: bgMusic.volume,
+                muted: isMuted
+            }
+        };
+
+        // Create download link
+        const dataStr = JSON.stringify(saveData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `cattown_save_${new Date().toISOString().slice(0,10)}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+
+        console.log('Game saved successfully!');
+        showNotification('✓ Game saved successfully!', 3000);
+    } catch (error) {
+        console.error('Error saving game:', error);
+        showNotification('✗ Failed to save game. Please try again.', 4000);
+    }
+}
+
+function loadGame(saveData) {
+    try {
+        // Validate save data
+        if (!saveData || !saveData.version) {
+            throw new Error('Invalid save file');
+        }
+
+        // Restore player state
+        if (saveData.player && gameState.player) {
+            gameState.player.x = saveData.player.x;
+            gameState.player.y = saveData.player.y;
+            gameState.player.health = saveData.player.health;
+            gameState.player.maxHealth = saveData.player.maxHealth;
+            gameState.player.isCat = saveData.player.isCat;
+            gameState.player.speed = saveData.player.speed;
+            gameState.player.baseSpeed = saveData.player.baseSpeed;
+            gameState.player.speedBoostEndTime = saveData.player.speedBoostEndTime;
+            gameState.player.facingRight = saveData.player.facingRight;
+        }
+
+        // Restore progress
+        gameState.level = saveData.level;
+        gameState.xp = saveData.xp;
+        gameState.xpToNextLevel = saveData.xpToNextLevel;
+        gameState.catCash = saveData.catCash;
+        gameState.fireflyCount = saveData.fireflyCount;
+
+        // Restore time and environment
+        gameState.gameTime = saveData.gameTime;
+        gameState.timeOfDay = saveData.timeOfDay;
+        gameState.isNight = saveData.isNight;
+        gameState.camera = { ...saveData.camera };
+
+        // Restore companions
+        gameState.companions = saveData.companions.map(c =>
+            new Companion(c.x, c.y, c.type, c.sizeMultiplier)
+        );
+
+        // Restore dropped companions with full structure
+        gameState.droppedCompanions = saveData.droppedCompanions.map(dropped => ({
+            companion: new Companion(dropped.companion.x, dropped.companion.y, dropped.companion.type, dropped.companion.sizeMultiplier),
+            x: dropped.x,
+            y: dropped.y,
+            type: dropped.type,
+            isInHouse: dropped.isInHouse,
+            houseId: dropped.houseId,
+            houseX: dropped.houseX,
+            houseY: dropped.houseY,
+            wanderTarget: null,
+            wanderCooldown: 0
+        }));
+
+        // Restore items
+        gameState.items = saveData.items.map(item =>
+            new Item(item.x, item.y, item.type)
+        );
+
+        // Restore chests
+        gameState.chests = saveData.chests.map(chest => {
+            const c = new Chest(chest.x, chest.y, 0);
+            c.opened = chest.opened;
+            c.tier = chest.tier;
+            c.color = chest.color;
+            c.sizeMultiplier = chest.sizeMultiplier;
+            c.fireflyCost = chest.fireflyCost;
+            c.width = 72 * c.sizeMultiplier;
+            c.height = 60 * c.sizeMultiplier;
+            return c;
+        });
+
+        // Restore fireflies
+        gameState.fireflies = saveData.fireflies.map(ff => ({
+            x: ff.x,
+            y: ff.y,
+            hue: ff.hue,
+            xpValue: ff.xpValue,
+            size: ff.size,
+            isRainbow: ff.isRainbow,
+            floatOffset: Math.random() * Math.PI * 2,
+            floatSpeed: 0.02 + Math.random() * 0.03,
+            driftX: (Math.random() - 0.5) * 0.3,
+            driftY: (Math.random() - 0.5) * 0.3
+        }));
+
+        // Restore house furniture
+        gameState.houseFurniture = saveData.houseFurniture;
+        gameState.furnitureHues = { ...saveData.furnitureHues };
+        gameState.furnitureSizes = { ...saveData.furnitureSizes };
+        gameState.isInsideHouse = saveData.isInsideHouse;
+        gameState.currentHouseId = saveData.currentHouseId;
+
+        // Restore placed furniture if inside house
+        if (gameState.isInsideHouse && gameState.currentHouseId) {
+            gameState.placedFurniture = gameState.houseFurniture[gameState.currentHouseId] || [];
+        }
+
+        // Restore audio settings
+        if (saveData.audio) {
+            currentTrackIndex = saveData.audio.currentTrackIndex;
+            bgMusic.volume = saveData.audio.volume;
+            isMuted = saveData.audio.muted;
+            bgMusic.muted = isMuted;
+            if (volumeSlider) volumeSlider.value = saveData.audio.volume * 100;
+            if (muteButton) muteButton.textContent = isMuted ? '🔇' : '🔊';
+        }
+
+        // Update UI to reflect loaded state
+        updateUI();
+
+        console.log('Game loaded successfully!');
+        showNotification('Game loaded successfully!', 3000);
+    } catch (error) {
+        console.error('Error loading game:', error);
+        showNotification('✗ Failed to load game. File may be corrupted.', 4000);
+    }
+}
+
+// Save & Load button event listeners
+const saveButton = document.getElementById('saveButton');
+const loadButton = document.getElementById('loadButton');
+const loadFileInput = document.getElementById('loadFileInput');
+
+if (saveButton) {
+    saveButton.addEventListener('click', () => {
+        saveGame();
+    });
+}
+
+if (loadButton && loadFileInput) {
+    loadButton.addEventListener('click', () => {
+        loadFileInput.click();
+    });
+
+    loadFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const saveData = JSON.parse(event.target.result);
+                    loadGame(saveData);
+                } catch (error) {
+                    console.error('Error parsing save file:', error);
+                    showNotification('✗ Invalid save file format.', 4000);
+                }
+            };
+            reader.readAsText(file);
+        }
+        // Reset file input so the same file can be loaded again
+        e.target.value = '';
+    });
 }
 
 // Initialize preview (only if canvas exists)
@@ -4455,7 +4730,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.9', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.10', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
@@ -4464,6 +4739,60 @@ function gameLoop() {
         }
     }
 
+    // Draw notification overlay
+    if (gameState.notification.visible) {
+        const elapsed = Date.now() - gameState.notification.fadeStartTime;
+        const duration = gameState.notification.duration;
+
+        // Calculate alpha for fade in/out
+        let alpha = 1;
+        if (elapsed < 300) {
+            // Fade in (first 300ms)
+            alpha = elapsed / 300;
+        } else if (elapsed > duration - 500) {
+            // Fade out (last 500ms)
+            alpha = (duration - elapsed) / 500;
+        }
+
+        if (elapsed >= duration) {
+            // Hide notification after duration
+            gameState.notification.visible = false;
+        } else {
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            // Draw notification box
+            const boxWidth = 400;
+            const boxHeight = 60;
+            const boxX = (canvas.width - boxWidth) / 2;
+            const boxY = 80;
+
+            // Background with glow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 20;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+            ctx.fill();
+
+            // Border
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 10);
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(gameState.notification.message, boxX + boxWidth / 2, boxY + boxHeight / 2);
+
+            ctx.restore();
+        }
+    }
 
     requestAnimationFrame(gameLoop);
 }
