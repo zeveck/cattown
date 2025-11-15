@@ -1,3 +1,5 @@
+// Clara's Cat Town - Version 0.2.0
+
 // Game Configuration
 const CONFIG = {
     TILE_SIZE: 40,
@@ -27,19 +29,30 @@ const gameState = {
     player: null,
     enemies: [],
     companions: [],
+    droppedCompanions: [],
     items: [],
     chests: [],
     projectiles: [],
     particles: [],
+    fireflies: [],
     village: null,
     camera: { x: 0, y: 0 },
     keys: {},
     mousePos: { x: 0, y: 0 },
+    compassHover: false,
     catCash: 0,
+    fireflyCount: 0,
+    eKeyWasPressed: false,
+    fKeyWasPressed: false,
+    musicStarted: false,
+    gameStartTime: 0,
+    level: 1,
+    xp: 0,
+    xpToNextLevel: 100,
     timeOfDay: 0, // 0-1, 0 = dawn, 0.5 = dusk
     isNight: false,
     previousIsNight: false,
-    gameTime: 18000, // Start at 0.3 of day cycle (morning, ~7:12am)
+    gameTime: 6000, // Start right at sunrise (timeOfDay: 0.1, just after dawn)
     playerHouse: null,
     furnitureList: [],
     isInsideHouse: false,
@@ -52,6 +65,9 @@ const gameState = {
     furnitureRotation: 0,
     lastHouseExitTime: 0,
     isDraggingSlider: false,
+    lastActivityTime: Date.now(),
+    controlsPanelShown: false,
+    hasPlayerMoved: false, // Track if player has moved since game start
     furnitureHues: {
         bed: 0,
         table: 0,
@@ -279,7 +295,56 @@ if (helpButton && controlsPanel) {
     helpButton.addEventListener('click', () => {
         const isVisible = controlsPanel.style.display !== 'none';
         controlsPanel.style.display = isVisible ? 'none' : 'block';
+        gameState.controlsPanelShown = !isVisible;
+        gameState.lastActivityTime = Date.now(); // Reset idle timer
     });
+}
+
+// Audio controls
+const muteButton = document.getElementById('muteButton');
+const volumeSlider = document.getElementById('volumeSlider');
+const prevButton = document.getElementById('prevButton');
+const nextButton = document.getElementById('nextButton');
+let isMuted = false;
+
+if (muteButton && volumeSlider) {
+    // Mute button click
+    muteButton.addEventListener('click', () => {
+        isMuted = !isMuted;
+        bgMusic.muted = isMuted;
+        muteButton.textContent = isMuted ? '🔇' : '🔊';
+    });
+
+    // Volume slider change
+    volumeSlider.addEventListener('input', (e) => {
+        const volume = e.target.value / 100;
+        bgMusic.volume = volume;
+
+        // Update mute button if volume is 0
+        if (volume === 0) {
+            isMuted = true;
+            bgMusic.muted = true;
+            muteButton.textContent = '🔇';
+        } else if (isMuted) {
+            isMuted = false;
+            bgMusic.muted = false;
+            muteButton.textContent = '🔊';
+        }
+    });
+
+    // Previous track button
+    if (prevButton) {
+        prevButton.addEventListener('click', () => {
+            previousTrack();
+        });
+    }
+
+    // Next track button
+    if (nextButton) {
+        nextButton.addEventListener('click', () => {
+            nextTrack();
+        });
+    }
 }
 
 // Initialize preview (only if canvas exists)
@@ -301,6 +366,11 @@ class Player {
         this.isCat = false;
         this.lastMagicTime = 0;
         this.speedBoostEndTime = 0;
+        // Animation state for cat walking
+        this.walkingFrame = 0; // 0 or 1
+        this.walkingFrameCounter = 0;
+        this.isMoving = false;
+        this.facingRight = false;
     }
 
     update() {
@@ -314,10 +384,54 @@ class Player {
         }
 
         // Movement
-        if (gameState.keys['ArrowUp']) this.y -= this.speed;
-        if (gameState.keys['ArrowDown']) this.y += this.speed;
-        if (gameState.keys['ArrowLeft']) this.x -= this.speed;
-        if (gameState.keys['ArrowRight']) this.x += this.speed;
+        let moved = false;
+        if (gameState.keys['ArrowUp']) {
+            this.y -= this.speed;
+            moved = true;
+        }
+        if (gameState.keys['ArrowDown']) {
+            this.y += this.speed;
+            moved = true;
+        }
+        if (gameState.keys['ArrowLeft']) {
+            this.x -= this.speed;
+            this.facingRight = false;
+            moved = true;
+        }
+        if (gameState.keys['ArrowRight']) {
+            this.x += this.speed;
+            this.facingRight = true;
+            moved = true;
+        }
+
+        // Update walking animation for cat
+        if (this.isCat) {
+            this.isMoving = moved;
+            if (moved) {
+                this.walkingFrameCounter++;
+                // Switch frame every 10 updates (adjust for speed)
+                if (this.walkingFrameCounter >= 10) {
+                    this.walkingFrame = (this.walkingFrame + 1) % 2;
+                    this.walkingFrameCounter = 0;
+                }
+            } else {
+                this.walkingFrameCounter = 0;
+                this.walkingFrame = 0;
+            }
+        }
+
+        // Track that player has moved (for idle menu logic)
+        if (moved) {
+            gameState.hasPlayerMoved = true;
+        }
+
+        // Start music on first movement
+        if (moved && !gameState.musicStarted) {
+            gameState.musicStarted = true;
+            bgMusic.play().catch(err => {
+                gameState.musicStarted = false; // Allow retry on error
+            });
+        }
 
         // Collision detection with buildings
         if (this.checkCollision()) {
@@ -335,15 +449,6 @@ class Player {
 
         // Check building collisions
         for (let building of gameState.village.buildings) {
-            // Check for door interaction on ANY house - much larger range
-            // Prevent re-entry for 500ms after exiting
-            const canEnter = Date.now() - gameState.lastHouseExitTime > 500;
-            if (this.isNear(building, 200) && canEnter) {
-                if (gameState.keys['e'] || gameState.keys['E']) {
-                    enterHouse(building);
-                }
-            }
-
             // Don't collide with any house near the door (bottom area)
             const playerBottom = this.y + this.height;
             const houseBottom = building.y + building.height;
@@ -418,11 +523,55 @@ class Player {
 
         this.lastMagicTime = now;
 
-        const angle = Math.atan2(targetY - this.y, targetX - this.x);
+        // Target the closest firefly at night, or closest chest during day
+        let finalTargetX = targetX;
+        let finalTargetY = targetY;
+        let closestTarget = null;
+        const playerCenterX = this.x + this.width / 2;
+        const playerCenterY = this.y + this.height / 2;
+
+        if (gameState.isNight && gameState.fireflies.length > 0) {
+            // Night: Target closest firefly
+            let closestDist = Infinity;
+
+            for (let firefly of gameState.fireflies) {
+                const dx = firefly.x - playerCenterX;
+                const dy = firefly.y - playerCenterY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestTarget = firefly;
+                    finalTargetX = firefly.x;
+                    finalTargetY = firefly.y;
+                }
+            }
+        } else if (!gameState.isNight && gameState.chests.length > 0) {
+            // Day: Target closest unopened chest
+            let closestDist = Infinity;
+
+            for (let chest of gameState.chests) {
+                if (chest.opened) continue; // Skip opened chests
+
+                const dx = chest.x + chest.width / 2 - playerCenterX;
+                const dy = chest.y + chest.height / 2 - playerCenterY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestTarget = chest;
+                    finalTargetX = chest.x + chest.width / 2;
+                    finalTargetY = chest.y + chest.height / 2;
+                }
+            }
+        }
+
+        const angle = Math.atan2(finalTargetY - this.y, finalTargetX - this.x);
         gameState.projectiles.push(new Projectile(
             this.x + this.width / 2,
             this.y + this.height / 2,
-            angle
+            angle,
+            closestTarget // Pass the target (firefly or chest)
         ));
     }
 
@@ -439,9 +588,10 @@ class Player {
         this.health = Math.min(this.maxHealth, this.health + amount);
     }
 
-    activateSpeedBoost(duration = 5000, multiplier = 1.5) {
+    activateSpeedBoost(duration = 5000, multiplier = 1.5, color = '#FFD700') {
         this.speed = this.baseSpeed * multiplier;
         this.speedBoostEndTime = Date.now() + duration;
+        this.speedBoostColor = color; // Store the color for HUD pulse
     }
 
     transform() {
@@ -466,9 +616,17 @@ class Player {
         ctx.ellipse(x + 15, y + 42, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw girl sprite
+        // Draw girl sprite with purple glow at night
         if (girlImage.complete) {
-            ctx.drawImage(girlImage, x, y, this.width, this.height);
+            if (gameState.isNight) {
+                ctx.save();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#9370DB'; // Medium purple
+                ctx.drawImage(girlImage, x, y, this.width, this.height);
+                ctx.restore();
+            } else {
+                ctx.drawImage(girlImage, x, y, this.width, this.height);
+            }
         }
     }
 
@@ -479,9 +637,33 @@ class Player {
         ctx.ellipse(x + 15, y + 25, 10, 3, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw cat sprite
-        if (catImage.complete) {
-            ctx.drawImage(catImage, x, y, this.width, this.height);
+        // Choose the appropriate sprite based on movement
+        let catSprite = catImage; // Default idle
+        if (this.isMoving) {
+            catSprite = this.walkingFrame === 0 ? catWalking1 : catWalking2;
+        }
+
+        // Draw cat sprite with optional flip and purple glow at night
+        if (catSprite.complete) {
+            ctx.save();
+
+            // Add purple glow at night
+            if (gameState.isNight) {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#9370DB'; // Medium purple
+            }
+
+            if (this.facingRight) {
+                // Flip horizontally for right-facing
+                ctx.translate(x + this.width, y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(catSprite, 0, 0, this.width, this.height);
+            } else {
+                // Normal left-facing
+                ctx.drawImage(catSprite, x, y, this.width, this.height);
+            }
+
+            ctx.restore();
         }
     }
 }
@@ -615,11 +797,12 @@ class Enemy {
 }
 
 class Companion {
-    constructor(x, y, type) {
+    constructor(x, y, type, sizeMultiplier = 1.0) {
         this.x = x;
         this.y = y;
-        this.width = 40;
-        this.height = 40;
+        this.sizeMultiplier = sizeMultiplier;
+        this.width = 40 * sizeMultiplier;
+        this.height = 40 * sizeMultiplier;
         this.type = type; // 'dog', 'cat', 'bird'
         this.speed = CONFIG.COMPANION_SPEED;
         this.targetX = x;
@@ -649,22 +832,47 @@ class Companion {
         const screenX = this.x - gameState.camera.x;
         const screenY = this.y - gameState.camera.y + Math.sin(this.bobOffset) * 2;
 
-        // Shadow
+        // Shadow (scaled with companion size)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.beginPath();
-        ctx.ellipse(screenX + 20, screenY + 35, 8, 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+            screenX + (20 * this.sizeMultiplier),
+            screenY + (35 * this.sizeMultiplier),
+            8 * this.sizeMultiplier,
+            2 * this.sizeMultiplier,
+            0, 0, Math.PI * 2
+        );
         ctx.fill();
 
-        // Draw friend image if loaded
+        // Draw friend image with colored glow at night
         const image = friendImages[this.type];
         if (image && image.complete) {
-            ctx.drawImage(image, screenX, screenY, this.width, this.height);
+            if (gameState.isNight) {
+                // Assign glow color based on companion type
+                const glowColors = {
+                    kitten1: '#FFA500',  // Orange
+                    kitten2: '#FFA500',  // Orange
+                    kitten3: '#FFA500',  // Orange
+                    frog: '#32CD32',     // Lime green
+                    squirrel: '#D2691E', // Chocolate brown
+                    puppy: '#DAA520',    // Goldenrod
+                    bunny: '#FFB6C1'     // Light pink
+                };
+
+                ctx.save();
+                ctx.shadowBlur = 15 * this.sizeMultiplier;
+                ctx.shadowColor = glowColors[this.type] || '#FFFFFF'; // Default white
+                ctx.drawImage(image, screenX, screenY, this.width, this.height);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, screenX, screenY, this.width, this.height);
+            }
         }
     }
 }
 
 class Projectile {
-    constructor(x, y, angle) {
+    constructor(x, y, angle, target = null) {
         this.x = x;
         this.y = y;
         this.angle = angle;
@@ -673,9 +881,58 @@ class Projectile {
         this.damage = 15;
         this.lifetime = 2000;
         this.createdAt = Date.now();
+        this.target = target; // Can be firefly or chest
     }
 
     update() {
+        // Determine if target is valid (firefly at night or chest during day)
+        let hasValidTarget = false;
+        let targetX, targetY;
+
+        if (gameState.isNight && this.target && gameState.fireflies.includes(this.target)) {
+            // Night: Homing on firefly
+            hasValidTarget = true;
+            targetX = this.target.x;
+            targetY = this.target.y;
+        } else if (!gameState.isNight && this.target && gameState.chests.includes(this.target)) {
+            // Day: Homing on chest
+            hasValidTarget = true;
+            targetX = this.target.x + this.target.width / 2;
+            targetY = this.target.y + this.target.height / 2;
+        }
+
+        // Home in on target if valid
+        if (hasValidTarget) {
+            const dx = targetX - this.x;
+            const dy = targetY - this.y;
+            this.angle = Math.atan2(dy, dx);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Check collision
+            if (dist < 20) {
+                if (gameState.isNight && gameState.fireflies.includes(this.target)) {
+                    // Hit firefly - change color and grow
+                    const newHue = this.target.hue + 60;
+                    if (newHue >= 360) {
+                        this.target.isRainbow = true;
+                        this.target.hue = 0;
+                    } else {
+                        this.target.hue = newHue;
+                    }
+                    this.target.size = Math.min((this.target.size || 32) + 4, 64);
+                    this.target.xpValue = (this.target.xpValue || 10) + 5;
+                } else if (!gameState.isNight && gameState.chests.includes(this.target)) {
+                    // Hit chest - increment hit counter
+                    this.target.hitCount = (this.target.hitCount || 0) + 1;
+                    if (this.target.hitCount >= 3 && this.target.fireflyCost === 0) {
+                        // Basic chest - open after 3 hits
+                        this.target.open();
+                    }
+                }
+                return true; // Remove projectile
+            }
+        }
+
         this.x += Math.cos(this.angle) * this.speed;
         this.y += Math.sin(this.angle) * this.speed;
 
@@ -776,8 +1033,13 @@ class Item {
         if (gameState.player && this.isNear(gameState.player, 30)) {
             gameState.player.heal(this.healAmount);
 
-            // Activate speed boost when eating food
-            gameState.player.activateSpeedBoost(5000, 1.5); // 5 seconds, 1.5x speed
+            // Activate speed boost when eating food with heart color
+            const heartColor = this.type === 'apple' ? '#FF1493' : this.type === 'orange' ? '#FF69B4' : '#FFB6C1';
+            gameState.player.activateSpeedBoost(5000, 1.5, heartColor); // 5 seconds, 1.5x speed
+
+            // Gain XP for picking up hearts
+            const xpAmount = this.type === 'apple' ? 10 : this.type === 'orange' ? 7 : 5;
+            gainXP(xpAmount);
 
             updateUI();
 
@@ -805,71 +1067,137 @@ class Item {
         ctx.ellipse(screenX + 16, screenY + 35, 10, 3, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        if (this.type === 'apple') {
-            ctx.fillStyle = '#FF0000';
-            ctx.beginPath();
-            ctx.arc(screenX + 16, screenY + 16, 13, 0, Math.PI * 2);
-            ctx.fill();
+        // Draw heart shape (all types are now hearts with different colors/sizes)
+        const heartSize = this.type === 'apple' ? 1.0 : this.type === 'orange' ? 0.85 : 0.7;
+        const heartColor = this.type === 'apple' ? '#FF1493' : this.type === 'orange' ? '#FF69B4' : '#FFB6C1';
 
-            ctx.fillStyle = '#228B22';
-            ctx.fillRect(screenX + 14, screenY + 5, 4, 7);
-        } else if (this.type === 'orange') {
-            ctx.fillStyle = '#FFA500';
-            ctx.beginPath();
-            ctx.arc(screenX + 16, screenY + 16, 13, 0, Math.PI * 2);
-            ctx.fill();
-        } else if (this.type === 'berry') {
-            ctx.fillStyle = '#8B008B';
-            ctx.beginPath();
-            ctx.arc(screenX + 10, screenY + 16, 7, 0, Math.PI * 2);
-            ctx.arc(screenX + 22, screenY + 16, 7, 0, Math.PI * 2);
-            ctx.arc(screenX + 16, screenY + 22, 7, 0, Math.PI * 2);
-            ctx.fill();
+        ctx.save();
+        ctx.translate(screenX + 16, screenY + 16);
+        ctx.scale(heartSize, heartSize);
+
+        // Add faint glow at night
+        if (gameState.isNight) {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = heartColor;
         }
+
+        // Draw heart
+        ctx.fillStyle = heartColor;
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        // Left top curve
+        ctx.bezierCurveTo(-8, -12, -15, -8, -15, 0);
+        ctx.bezierCurveTo(-15, 5, -10, 10, 0, 15);
+        // Right side
+        ctx.bezierCurveTo(10, 10, 15, 5, 15, 0);
+        ctx.bezierCurveTo(15, -8, 8, -12, 0, -5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Heart shine
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(-5, -3, 3, 5, -0.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
     }
 }
 
 class Chest {
-    constructor(x, y) {
+    constructor(x, y, distanceFromCenter = 0) {
         this.x = x;
         this.y = y;
-        this.width = 72;
-        this.height = 60;
         this.opened = false;
         this.companionTypes = ['kitten1', 'kitten2', 'kitten3', 'frog', 'squirrel', 'puppy', 'bunny'];
-    }
 
-    update() {
-        if (this.opened) return;
+        // Calculate tier based on distance from center (every 2000 units = new tier)
+        this.tier = Math.min(Math.floor(distanceFromCenter / 2000), 5); // Max tier 5
 
-        // Check if player presses E near chest
-        if (gameState.player && this.isNear(gameState.player, 60)) {
-            if (gameState.keys['e'] || gameState.keys['E']) {
-                this.open();
-            }
+        // Assign color based on tier (tier 0 is purple, tier 1+ use other colors - never purple)
+        const tierColors = ['purple', 'green', 'aqua', 'blue', 'red', 'red'];
+        this.color = tierColors[this.tier];
+
+        // Glow colors for each tier (used at night)
+        const glowColors = ['#9370DB', '#FFD700', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF'];
+        this.glowColor = glowColors[this.tier];
+
+        // Size: basic chests are always size 1.0, firefly chests are always larger
+        const baseWidth = 72;
+        const baseHeight = 60;
+
+        if (this.tier === 0) {
+            // Basic chests - always base size
+            this.sizeMultiplier = 1.0;
+        } else {
+            // Firefly chests - always larger than basic, with random variation
+            const maxSizeMultiplier = 1 + (this.tier * 0.3); // 1.3, 1.6, 1.9, 2.2, 2.5
+            const minSizeMultiplier = 1.2; // Always at least 20% larger than basic chests
+            // Use squared random to make larger sizes rare (skewed distribution)
+            this.sizeMultiplier = minSizeMultiplier + Math.random() * Math.random() * (maxSizeMultiplier - minSizeMultiplier);
+        }
+
+        this.width = baseWidth * this.sizeMultiplier;
+        this.height = baseHeight * this.sizeMultiplier;
+
+        // Firefly cost and companion count based on tier
+        if (this.tier === 0) {
+            this.fireflyCost = 0; // Free
+            this.companionCount = 1;
+        } else {
+            this.fireflyCost = this.tier * 5; // 5, 10, 15, 20, 25
+            this.companionCount = 1; // All chests have 1 companion (large chests have bigger companions)
         }
     }
 
+    update() {
+        // Chest opening is now handled by handleInteractions()
+    }
+
+    canOpen() {
+        return gameState.fireflyCount >= this.fireflyCost;
+    }
+
     open() {
+        // Check if player has enough fireflies
+        if (!this.canOpen()) {
+            return false;
+        }
+
         this.opened = true;
 
-        // Spawn a random companion
-        const type = this.companionTypes[Math.floor(Math.random() * this.companionTypes.length)];
-        gameState.companions.push(new Companion(this.x, this.y, type));
+        // Deduct fireflies
+        gameState.fireflyCount -= this.fireflyCost;
 
-        // Award Cat Cash for freeing a friend
-        const cashAmount = 15 + Math.floor(Math.random() * 10);
+        // Spawn multiple companions based on chest tier (sized to match chest)
+        for (let i = 0; i < this.companionCount; i++) {
+            const type = this.companionTypes[Math.floor(Math.random() * this.companionTypes.length)];
+            // Spread companions out slightly (scale with chest size)
+            const offsetX = (Math.random() - 0.5) * 80 * this.sizeMultiplier;
+            const offsetY = (Math.random() - 0.5) * 80 * this.sizeMultiplier;
+            gameState.companions.push(new Companion(this.x + offsetX, this.y + offsetY, type, this.sizeMultiplier));
+        }
+
+        // Award Cat Cash for freeing friends (more for bigger chests)
+        const cashAmount = (15 + Math.floor(Math.random() * 10)) * this.companionCount;
         gameState.catCash += cashAmount;
+
+        // Gain XP for freeing friends (more for bigger chests)
+        gainXP(25 * this.companionCount);
+
         updateUI();
 
-        // Particles
-        for (let i = 0; i < 20; i++) {
+        // More particles for bigger chests
+        const particleCount = 20 * this.sizeMultiplier;
+        for (let i = 0; i < particleCount; i++) {
             gameState.particles.push(new Particle(
                 this.x + this.width / 2,
                 this.y + this.height / 2,
                 Math.random() * Math.PI * 2
             ));
         }
+
+        return true;
     }
 
     isNear(player, distance) {
@@ -882,39 +1210,125 @@ class Chest {
         const screenX = this.x - gameState.camera.x;
         const screenY = this.y - gameState.camera.y;
 
-        // Draw chest image based on opened state
-        const chestImg = this.opened ? emptyChestImage : fullChestImage;
-        if (chestImg && chestImg.complete) {
-            ctx.drawImage(chestImg, screenX, screenY, this.width, this.height);
-        } else {
-            // Fallback to old drawing if image not loaded
-            if (this.opened) {
-                // Open chest
-                ctx.fillStyle = '#8B4513';
-                ctx.fillRect(screenX, screenY + 16, 48, 24);
+        // Get the appropriate colored chest image based on state and color
+        const colorImages = chestImages[this.color];
+        if (colorImages) {
+            const chestImg = this.opened ? colorImages.empty : colorImages.full;
 
-                ctx.fillStyle = '#D2691E';
-                ctx.fillRect(screenX + 3, screenY, 42, 20);
+            if (chestImg && chestImg.complete) {
+                ctx.save();
+
+                // Add glow at night for unopened chests
+                if (gameState.isNight && !this.opened) {
+                    ctx.shadowBlur = 20 * this.sizeMultiplier;
+                    ctx.shadowColor = this.glowColor;
+                }
+
+                // Draw the colored chest image
+                ctx.drawImage(chestImg, screenX, screenY, this.width, this.height);
+
+                ctx.restore();
             } else {
-                // Closed chest
-                ctx.fillStyle = '#8B4513';
-                ctx.fillRect(screenX, screenY + 16, 48, 24);
+                // Fallback to old drawing if image not loaded
+                ctx.save();
+                if (this.opened) {
+                    // Open chest
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(screenX, screenY + 16, 48, 24);
 
-                ctx.fillStyle = '#D2691E';
-                ctx.fillRect(screenX, screenY + 8, 48, 16);
+                    ctx.fillStyle = '#D2691E';
+                    ctx.fillRect(screenX + 3, screenY, 42, 20);
+                } else {
+                    // Closed chest
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(screenX, screenY + 16, 48, 24);
 
-                // Lock
-                ctx.fillStyle = '#FFD700';
-                ctx.fillRect(screenX + 20, screenY + 19, 8, 10);
+                    ctx.fillStyle = '#D2691E';
+                    ctx.fillRect(screenX, screenY + 8, 48, 16);
+
+                    // Lock
+                    ctx.fillStyle = '#FFD700';
+                    ctx.fillRect(screenX + 20, screenY + 19, 8, 10);
+                }
+                ctx.restore();
             }
         }
 
         // Interaction hint
-        if (!this.opened && gameState.player && this.isNear(gameState.player, 60)) {
-            ctx.fillStyle = '#FFF';
-            ctx.font = 'bold 14px Arial';
+        if (!this.opened && gameState.player && this.isNear(gameState.player, 80 * this.sizeMultiplier)) {
+            ctx.save();
             ctx.textAlign = 'center';
-            ctx.fillText('Press E', screenX + 24, screenY - 8);
+            ctx.font = 'bold 14px Arial';
+
+            if (this.fireflyCost > 0) {
+                // Large chest - show firefly requirement
+                const canOpen = this.canOpen();
+                const text1 = `${this.fireflyCost} Fireflies`;
+                const text2 = canOpen ? 'Press F to open' : 'Need more fireflies';
+
+                // Measure both texts to get max width
+                const text1Width = ctx.measureText(text1).width;
+                const text2Width = ctx.measureText(text2).width;
+                const maxWidth = Math.max(text1Width, text2Width);
+
+                // HUD-style frame
+                const frameX = screenX + this.width / 2 - maxWidth / 2 - 10;
+                const frameY = screenY - 50;
+                const frameWidth = maxWidth + 20;
+                const frameHeight = 40;
+                const cornerRadius = 8;
+
+                // Background
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.beginPath();
+                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+                ctx.fill();
+
+                // Border (gold if can open, red if cannot)
+                ctx.strokeStyle = canOpen ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+                ctx.stroke();
+
+                // Firefly count text
+                ctx.fillStyle = canOpen ? '#00FF00' : '#FF0000';
+                ctx.fillText(text1, screenX + this.width / 2, screenY - 36);
+
+                // Action text
+                ctx.fillStyle = canOpen ? '#FFF' : '#AAA';
+                ctx.fillText(text2, screenX + this.width / 2, screenY - 24);
+            } else {
+                // Small chest - free to open with E
+                const text = 'Press E to Open';
+                const textWidth = ctx.measureText(text).width;
+
+                // HUD-style frame
+                const frameX = screenX + this.width / 2 - textWidth / 2 - 10;
+                const frameY = screenY - 30;
+                const frameWidth = textWidth + 20;
+                const frameHeight = 24;
+                const cornerRadius = 6;
+
+                // Background
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.beginPath();
+                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+                ctx.fill();
+
+                // Border (gold)
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+                ctx.stroke();
+
+                // Text
+                ctx.fillStyle = '#FFF';
+                ctx.fillText(text, screenX + this.width / 2, screenY - 18);
+            }
+
+            ctx.restore();
         }
     }
 }
@@ -929,43 +1343,46 @@ class Village {
         this.villageHeight = 1200;
         this.villageCenterX = this.width / 2;
         this.villageCenterY = this.height / 2;
+        this.catFountain = null; // Will be set in generateVillage
         this.generateVillage();
     }
 
     generateVillage() {
-        // Calculate village offset to center it
+        // Place the cat fountain FIRST at the center of the village
+        this.catFountain = {
+            x: this.villageCenterX - 100, // Center the 200x200 fountain
+            y: this.villageCenterY - 100,
+            width: 200,
+            height: 200
+        };
+
+        // Calculate village offset to center it around the fountain
         const villageOffsetX = this.villageCenterX - this.villageWidth / 2;
         const villageOffsetY = this.villageCenterY - this.villageHeight / 2;
 
-        // Player's house (special) - centered in village
+        // Generate houses around the fountain in a circular pattern
+        const numHouses = 9; // Player house + 8 other houses
+        const radius = 400; // Distance from fountain
+        const angleStep = (Math.PI * 2) / numHouses;
+
+        // Player's house (special) - first in the circle
         this.buildings.push({
             id: 'player_house',
-            x: villageOffsetX + 400,
-            y: villageOffsetY + 300,
+            x: this.catFountain.x + 200 + Math.cos(0) * radius - 80,
+            y: this.catFountain.y + 200 + Math.sin(0) * radius - 70,
             width: 160,
             height: 140,
             type: 'playerHouse',
             houseType: 1 // Player always gets house1
         });
 
-        // Generate other houses - scaled and offset
-        const housePositions = [
-            {x: 700, y: 200},
-            {x: 1000, y: 250},
-            {x: 600, y: 500},
-            {x: 900, y: 550},
-            {x: 1200, y: 400},
-            {x: 300, y: 600},
-            {x: 1100, y: 800},
-            {x: 500, y: 900}
-        ];
-
-        for (let i = 0; i < housePositions.length; i++) {
-            const pos = housePositions[i];
+        // Generate other houses in a circle around the fountain
+        for (let i = 1; i < numHouses; i++) {
+            const angle = i * angleStep;
             this.buildings.push({
-                id: `house_${i}`,
-                x: villageOffsetX + pos.x,
-                y: villageOffsetY + pos.y,
+                id: `house_${i - 1}`,
+                x: this.catFountain.x + 100 + Math.cos(angle) * radius - 80,
+                y: this.catFountain.y + 100 + Math.sin(angle) * radius - 70,
                 width: 160,
                 height: 140,
                 type: 'house',
@@ -984,13 +1401,36 @@ class Village {
                 y = villageOffsetY + Math.random() * this.villageHeight;
                 validPosition = true;
 
-                // Check distance from buildings
+                // Check distance from buildings (prevent tree/house overlap)
                 for (let building of this.buildings) {
                     const dx = x - (building.x + building.width / 2);
                     const dy = y - (building.y + building.height / 2);
-                    if (Math.sqrt(dx * dx + dy * dy) < 120) {
+                    if (Math.sqrt(dx * dx + dy * dy) < 160) { // Increased from 120 to prevent overlap
                         validPosition = false;
                         break;
+                    }
+                }
+
+                // Check distance from cat fountain
+                if (validPosition && this.catFountain) {
+                    const fountainCenterX = this.catFountain.x + this.catFountain.width / 2;
+                    const fountainCenterY = this.catFountain.y + this.catFountain.height / 2;
+                    const dx = x - fountainCenterX;
+                    const dy = y - fountainCenterY;
+                    if (Math.sqrt(dx * dx + dy * dy) < 300) {
+                        validPosition = false;
+                    }
+                }
+
+                // Check distance from other trees to prevent overlap
+                if (validPosition) {
+                    for (let tree of this.trees) {
+                        const dx = x - tree.x;
+                        const dy = y - tree.y;
+                        if (Math.sqrt(dx * dx + dy * dy) < 80) { // Minimum distance between trees
+                            validPosition = false;
+                            break;
+                        }
                     }
                 }
 
@@ -1029,13 +1469,39 @@ class Village {
             for (let building of this.buildings) {
                 const dx = x - (building.x + building.width / 2);
                 const dy = y - (building.y + building.height / 2);
-                if (Math.sqrt(dx * dx + dy * dy) < 120) {
+                if (Math.sqrt(dx * dx + dy * dy) < 160) { // Increased from 120 to prevent overlap
                     tooCloseToBuilding = true;
                     break;
                 }
             }
 
             if (tooCloseToBuilding) {
+                continue;
+            }
+
+            // Check distance from cat fountain
+            if (this.catFountain) {
+                const fountainCenterX = this.catFountain.x + this.catFountain.width / 2;
+                const fountainCenterY = this.catFountain.y + this.catFountain.height / 2;
+                const dx = x - fountainCenterX;
+                const dy = y - fountainCenterY;
+                if (Math.sqrt(dx * dx + dy * dy) < 300) {
+                    continue;
+                }
+            }
+
+            // Check distance from other trees to prevent overlap
+            let tooCloseToTree = false;
+            for (let tree of this.trees) {
+                const dx = x - tree.x;
+                const dy = y - tree.y;
+                if (Math.sqrt(dx * dx + dy * dy) < 80) { // Minimum distance between trees
+                    tooCloseToTree = true;
+                    break;
+                }
+            }
+
+            if (tooCloseToTree) {
                 continue;
             }
 
@@ -1089,9 +1555,62 @@ class Village {
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
-        // Draw trees (behind buildings)
-        for (let tree of this.trees) {
-            this.drawTree(ctx, tree);
+        // Draw cat fountain
+        if (this.catFountain && catFountainImage.complete) {
+            const screenX = this.catFountain.x - gameState.camera.x;
+            const screenY = this.catFountain.y - gameState.camera.y;
+            ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
+        }
+
+        // Draw buildings
+        for (let building of this.buildings) {
+            this.drawBuilding(ctx, building);
+        }
+    }
+
+    // Draw only the ground (before night overlay)
+    drawGround(ctx) {
+        const grassPattern = this.createGrassPattern(ctx);
+        if (grassPattern && grassPattern !== '#2d5016') {
+            ctx.save();
+            // Disable image smoothing to prevent seams between tiles
+            ctx.imageSmoothingEnabled = false;
+
+            // Round offsets to integers for pixel-perfect alignment
+            const offsetX = Math.floor(-gameState.camera.x % grassTileImage.width);
+            const offsetY = Math.floor(-gameState.camera.y % grassTileImage.height);
+            ctx.translate(offsetX, offsetY);
+            ctx.fillStyle = grassPattern;
+            ctx.fillRect(
+                -offsetX,
+                -offsetY,
+                Math.ceil(canvas.width - offsetX + grassTileImage.width),
+                Math.ceil(canvas.height - offsetY + grassTileImage.height)
+            );
+            ctx.restore();
+        } else {
+            ctx.fillStyle = '#2d5016';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+    }
+
+    // Draw buildings and fountain (after night overlay to stay bright)
+    drawBuildings(ctx) {
+        // Draw cat fountain
+        if (this.catFountain && catFountainImage.complete) {
+            const screenX = this.catFountain.x - gameState.camera.x;
+            const screenY = this.catFountain.y - gameState.camera.y;
+
+            // Add light blue glow at night
+            if (gameState.isNight) {
+                ctx.save();
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = '#87CEEB'; // Light blue
+                ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
+                ctx.restore();
+            } else {
+                ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
+            }
         }
 
         // Draw buildings
@@ -1158,9 +1677,17 @@ class Village {
             houseImg = houseImages[`house${houseType}`];
         }
 
-        // Draw house image
+        // Draw house image with glow at night
         if (houseImg && houseImg.complete) {
-            ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
+            if (gameState.isNight) {
+                ctx.save();
+                ctx.shadowBlur = 25;
+                ctx.shadowColor = '#FFA500'; // Light orange
+                ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
+                ctx.restore();
+            } else {
+                ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
+            }
         } else {
             // Fallback - draw simple colored rectangle if image fails
             ctx.fillStyle = '#8B4513';
@@ -1196,6 +1723,10 @@ const girlImage = new Image();
 girlImage.src = 'graphics/girl.png';
 const catImage = new Image();
 catImage.src = 'graphics/cat.png';
+const catWalking1 = new Image();
+catWalking1.src = 'graphics/cat-walking1.png';
+const catWalking2 = new Image();
+catWalking2.src = 'graphics/cat-walking2.png';
 
 // Load house images - 4 types
 const houseImages = {
@@ -1254,11 +1785,25 @@ furnitureImages.rug.src = 'graphics/house-items/rug.png';
 furnitureImages.plant.src = 'graphics/house-items/plant.png';
 furnitureImages.lamp.src = 'graphics/house-items/lamp.png';
 
-// Load chest images
-const fullChestImage = new Image();
-fullChestImage.src = 'graphics/full-chest.png';
-const emptyChestImage = new Image();
-emptyChestImage.src = 'graphics/empty-chest.png';
+// Load chest images for different tiers/colors
+const chestImages = {
+    purple: { full: new Image(), empty: new Image() },
+    green: { full: new Image(), empty: new Image() },
+    aqua: { full: new Image(), empty: new Image() },
+    blue: { full: new Image(), empty: new Image() },
+    red: { full: new Image(), empty: new Image() }
+};
+
+chestImages.purple.full.src = 'graphics/chests/purple-chest-full.png';
+chestImages.purple.empty.src = 'graphics/chests/purple-chest-empty.png';
+chestImages.green.full.src = 'graphics/chests/green-chest.png';
+chestImages.green.empty.src = 'graphics/chests/green-chest-open.png';
+chestImages.aqua.full.src = 'graphics/chests/aqua-chest.png';
+chestImages.aqua.empty.src = 'graphics/chests/aqua-chest-open.png';
+chestImages.blue.full.src = 'graphics/chests/blue-chest.png';
+chestImages.blue.empty.src = 'graphics/chests/blue-chest-open.png';
+chestImages.red.full.src = 'graphics/chests/red-chest.png';
+chestImages.red.empty.src = 'graphics/chests/red-chest-open.png';
 
 // Load tree images
 const treeImages = [
@@ -1274,8 +1819,57 @@ treeImages[2].src = 'graphics/trees/pinetree.png';
 const grassTileImage = new Image();
 grassTileImage.src = 'graphics/grass_tile.png';
 
+// Load firefly image
+const fireflyImage = new Image();
+fireflyImage.src = 'graphics/fireflies/ChatGPT Image Nov 14, 2025, 11_25_29 PM.png';
+
+// Cache for hue-rotated firefly images (to avoid expensive filter operations every frame)
+const fireflyImageCache = {};
+
+// Get a cached hue-rotated firefly image (creates if doesn't exist)
+function getCachedFireflyImage(hue, size) {
+    const cacheKey = `${hue}_${size}`;
+
+    // Return cached version if it exists
+    if (fireflyImageCache[cacheKey]) {
+        return fireflyImageCache[cacheKey];
+    }
+
+    // Create new offscreen canvas with the hue-rotated firefly
+    const offscreen = document.createElement('canvas');
+    offscreen.width = size;
+    offscreen.height = size;
+    const offCtx = offscreen.getContext('2d');
+
+    // Apply hue rotation filter ONCE (expensive operation, but only done when caching)
+    if (hue > 0) {
+        offCtx.filter = `hue-rotate(${hue}deg)`;
+    }
+
+    offCtx.drawImage(fireflyImage, 0, 0, size, size);
+
+    // Reset filter
+    offCtx.filter = 'none';
+
+    // Cache the result
+    fireflyImageCache[cacheKey] = offscreen;
+
+    return offscreen;
+}
+
+// Load firefly jar images
+const emptyJarImage = new Image();
+emptyJarImage.src = 'graphics/fireflies/empty-jar.png';
+
+const fullJarImage = new Image();
+fullJarImage.src = 'graphics/fireflies/full-jar.png';
+
+// Load cat fountain image
+const catFountainImage = new Image();
+catFountainImage.src = 'graphics/cat-fountain.png';
+
 let imagesLoaded = 0;
-const totalImages = 29; // girl, cat, 8 houses, 7 friends, 6 furniture, 2 chests, 3 trees, 1 grass tile
+const totalImages = 43; // girl, cat, 2 cat walking, 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 firefly, 2 jars, 1 cat fountain
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -1287,7 +1881,6 @@ function checkImagesLoaded() {
 // Helper function to handle both successful loads and errors
 function imageLoadHandler() {
     imagesLoaded++;
-    console.log(`Images loaded: ${imagesLoaded}/${totalImages}`);
     checkImagesLoaded();
 }
 
@@ -1296,6 +1889,12 @@ girlImage.onerror = () => { console.error('Failed to load girl.png'); imageLoadH
 
 catImage.onload = imageLoadHandler;
 catImage.onerror = () => { console.error('Failed to load cat.png'); imageLoadHandler(); };
+
+catWalking1.onload = imageLoadHandler;
+catWalking1.onerror = () => { console.error('Failed to load cat-walking1.png'); imageLoadHandler(); };
+
+catWalking2.onload = imageLoadHandler;
+catWalking2.onerror = () => { console.error('Failed to load cat-walking2.png'); imageLoadHandler(); };
 
 houseImages.house1.onload = imageLoadHandler;
 houseImages.house1.onerror = () => { console.error('Failed to load house1.png'); imageLoadHandler(); };
@@ -1360,11 +1959,31 @@ furnitureImages.plant.onerror = () => { console.error('Failed to load plant.png'
 furnitureImages.lamp.onload = imageLoadHandler;
 furnitureImages.lamp.onerror = () => { console.error('Failed to load lamp.png'); imageLoadHandler(); };
 
-fullChestImage.onload = imageLoadHandler;
-fullChestImage.onerror = () => { console.error('Failed to load full-chest.png'); imageLoadHandler(); };
+// Chest image handlers
+chestImages.purple.full.onload = imageLoadHandler;
+chestImages.purple.full.onerror = () => { console.error('Failed to load purple-chest-full.png'); imageLoadHandler(); };
+chestImages.purple.empty.onload = imageLoadHandler;
+chestImages.purple.empty.onerror = () => { console.error('Failed to load purple-chest-empty.png'); imageLoadHandler(); };
 
-emptyChestImage.onload = imageLoadHandler;
-emptyChestImage.onerror = () => { console.error('Failed to load empty-chest.png'); imageLoadHandler(); };
+chestImages.green.full.onload = imageLoadHandler;
+chestImages.green.full.onerror = () => { console.error('Failed to load green-chest.png'); imageLoadHandler(); };
+chestImages.green.empty.onload = imageLoadHandler;
+chestImages.green.empty.onerror = () => { console.error('Failed to load green-chest-open.png'); imageLoadHandler(); };
+
+chestImages.aqua.full.onload = imageLoadHandler;
+chestImages.aqua.full.onerror = () => { console.error('Failed to load aqua-chest.png'); imageLoadHandler(); };
+chestImages.aqua.empty.onload = imageLoadHandler;
+chestImages.aqua.empty.onerror = () => { console.error('Failed to load aqua-chest-open.png'); imageLoadHandler(); };
+
+chestImages.blue.full.onload = imageLoadHandler;
+chestImages.blue.full.onerror = () => { console.error('Failed to load blue-chest.png'); imageLoadHandler(); };
+chestImages.blue.empty.onload = imageLoadHandler;
+chestImages.blue.empty.onerror = () => { console.error('Failed to load blue-chest-open.png'); imageLoadHandler(); };
+
+chestImages.red.full.onload = imageLoadHandler;
+chestImages.red.full.onerror = () => { console.error('Failed to load red-chest.png'); imageLoadHandler(); };
+chestImages.red.empty.onload = imageLoadHandler;
+chestImages.red.empty.onerror = () => { console.error('Failed to load red-chest-open.png'); imageLoadHandler(); };
 
 treeImages[0].onload = imageLoadHandler;
 treeImages[0].onerror = () => { console.error('Failed to load tree1.png'); imageLoadHandler(); };
@@ -1378,14 +1997,101 @@ treeImages[2].onerror = () => { console.error('Failed to load pinetree.png'); im
 grassTileImage.onload = imageLoadHandler;
 grassTileImage.onerror = () => { console.error('Failed to load grass_tile.png'); imageLoadHandler(); };
 
+fireflyImage.onload = imageLoadHandler;
+fireflyImage.onerror = () => { console.error('Failed to load firefly.png'); imageLoadHandler(); };
+
+emptyJarImage.onload = imageLoadHandler;
+emptyJarImage.onerror = () => { console.error('Failed to load empty-jar.png'); imageLoadHandler(); };
+
+fullJarImage.onload = imageLoadHandler;
+fullJarImage.onerror = () => { console.error('Failed to load full-jar.png'); imageLoadHandler(); };
+
+catFountainImage.onload = imageLoadHandler;
+catFountainImage.onerror = () => { console.error('Failed to load cat-fountain.png'); imageLoadHandler(); };
+
+// Music playlist
+const musicPlaylist = [
+    'music/Whiskers and Wonders.mp3',
+    'music/Moonlight Carousel.mp3',
+    'music/Moonlight Carousel (1).mp3',
+    'music/Moonlight Whiskers.mp3',
+    'music/Moonlight Whiskers (1).mp3',
+    'music/Moonlit Paws.mp3'
+];
+let currentTrackIndex = 0;
+
 // Load background music
-const bgMusic = new Audio('music/Whiskers and Wonders.mp3');
-bgMusic.loop = true;
+const bgMusic = new Audio(musicPlaylist[currentTrackIndex]);
+bgMusic.loop = false; // We'll manually advance to next track
 bgMusic.volume = 0.5;
+
+// Function to load and play a track
+function loadTrack(index) {
+    currentTrackIndex = index;
+    if (currentTrackIndex < 0) {
+        currentTrackIndex = musicPlaylist.length - 1;
+    } else if (currentTrackIndex >= musicPlaylist.length) {
+        currentTrackIndex = 0;
+    }
+
+    const wasPlaying = !bgMusic.paused;
+    const currentVolume = bgMusic.volume;
+    const wasMuted = bgMusic.muted;
+
+    bgMusic.src = musicPlaylist[currentTrackIndex];
+    bgMusic.volume = currentVolume;
+    bgMusic.muted = wasMuted;
+
+    if (wasPlaying) {
+        bgMusic.play().catch(() => {}); // Silently handle errors
+    }
+}
+
+// Auto-advance to next track when current one ends
+bgMusic.addEventListener('ended', () => {
+    currentTrackIndex = (currentTrackIndex + 1) % musicPlaylist.length;
+    bgMusic.src = musicPlaylist[currentTrackIndex];
+    bgMusic.play().catch(() => {}); // Silently handle errors
+});
+
+// Functions to control playlist
+function nextTrack() {
+    loadTrack(currentTrackIndex + 1);
+}
+
+function previousTrack() {
+    loadTrack(currentTrackIndex - 1);
+}
 
 // Input handling
 document.addEventListener('keydown', (e) => {
     gameState.keys[e.key] = true;
+
+    // Reset idle timer on any key press
+    gameState.lastActivityTime = Date.now();
+
+    // ESC key to close controls panel
+    if (e.key === 'Escape') {
+        const controlsPanel = document.getElementById('controlsPanel');
+        if (controlsPanel.style.display === 'block') {
+            controlsPanel.style.display = 'none';
+            gameState.controlsPanelShown = false;
+        }
+        e.preventDefault();
+        return;
+    }
+
+    // "/" or "?" key to toggle controls panel
+    if (e.key === '/' || e.key === '?') {
+        const controlsPanel = document.getElementById('controlsPanel');
+        if (controlsPanel) {
+            const isVisible = controlsPanel.style.display === 'block';
+            controlsPanel.style.display = isVisible ? 'none' : 'block';
+            gameState.controlsPanelShown = !isVisible;
+        }
+        e.preventDefault();
+        return;
+    }
 
     // Prevent default behavior for game controls
     if (e.key === ' ' || e.key === 'Spacebar' ||
@@ -1408,7 +2114,59 @@ document.addEventListener('keydown', (e) => {
         }
     }
 
-    // Note: Exit house with E is handled in drawHouseInterior() when player is at the door
+    // Teleport to fountain with Home key
+    if (e.key === 'Home') {
+        if (gameState.player && !gameState.isInsideHouse && gameState.village && gameState.village.catFountain) {
+            const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+            const fountainBottomY = gameState.village.catFountain.y + gameState.village.catFountain.height;
+            gameState.player.x = fountainCenterX - gameState.player.width / 2;
+            gameState.player.y = fountainBottomY + 50; // Position in front of fountain
+
+            // Teleport companions around the player
+            gameState.companions.forEach((companion, index) => {
+                const angle = (index / gameState.companions.length) * Math.PI * 2;
+                const radius = 80;
+                companion.x = gameState.player.x + Math.cos(angle) * radius;
+                companion.y = gameState.player.y + Math.sin(angle) * radius;
+                companion.targetX = companion.x;
+                companion.targetY = companion.y;
+            });
+        }
+        e.preventDefault(); // Prevent default Home key behavior
+    }
+
+    // Drop closest companion with F
+    if (e.key === 'f' || e.key === 'F') {
+        if (gameState.companions.length > 0) {
+            // Find the companion closest to the player (last in line)
+            const lastCompanion = gameState.companions[gameState.companions.length - 1];
+
+            // Remove from companions array
+            gameState.companions.pop();
+
+            // Add to dropped companions with current position and house status
+            const droppedData = {
+                companion: lastCompanion,
+                x: lastCompanion.x,
+                y: lastCompanion.y,
+                type: lastCompanion.type,
+                isInHouse: gameState.isInsideHouse,
+                houseId: gameState.currentHouseId,
+                wanderTarget: null,
+                wanderCooldown: 0
+            };
+
+            // If inside house, set house coordinates instead
+            if (gameState.isInsideHouse) {
+                droppedData.houseX = lastCompanion.houseX || gameState.player.houseX;
+                droppedData.houseY = lastCompanion.houseY || gameState.player.houseY;
+            }
+
+            gameState.droppedCompanions.push(droppedData);
+        }
+    }
+
+    // Note: Exit house with E is handled in handleInteractions()
 
     // Rotate furniture with R
     if (e.key === 'r' || e.key === 'R') {
@@ -1464,6 +2222,24 @@ canvas.addEventListener('mousemove', (e) => {
         // Outside, use world coordinates
         gameState.mousePos.x = e.clientX - rect.left + gameState.camera.x;
         gameState.mousePos.y = e.clientY - rect.top + gameState.camera.y;
+
+        // Check if hovering over compass and change cursor
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const compassX = canvas.width - 60;
+        const compassY = 140;
+        const compassRadius = 25;
+        const dx = mouseX - compassX;
+        const dy = mouseY - compassY;
+        const distanceToCompass = Math.sqrt(dx * dx + dy * dy);
+
+        if (distanceToCompass <= compassRadius) {
+            canvas.style.cursor = 'pointer';
+            gameState.compassHover = true;
+        } else {
+            canvas.style.cursor = 'default';
+            gameState.compassHover = false;
+        }
     }
 });
 
@@ -1561,27 +2337,56 @@ canvas.addEventListener('click', (e) => {
             }
         }
     } else {
-        // Outside - shoot magic
-        if (gameState.player) {
-            gameState.player.shootMagic(gameState.mousePos.x, gameState.mousePos.y);
+        // Outside - check for compass click first, then shoot magic
+
+        // Check if clicking compass (top right corner)
+        const compassX = canvas.width - 60;
+        const compassY = 140; // 60 (sun/moon y) + 30 (sun/moon radius) + 50 (offset)
+        const compassRadius = 25;
+        const dx = clickX - compassX;
+        const dy = clickY - compassY;
+        const distanceToCompass = Math.sqrt(dx * dx + dy * dy);
+
+        if (distanceToCompass <= compassRadius && gameState.village && gameState.village.catFountain) {
+            // Clicked compass - teleport to cat fountain
+            const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+            const fountainBottomY = gameState.village.catFountain.y + gameState.village.catFountain.height;
+            gameState.player.x = fountainCenterX - gameState.player.width / 2;
+            gameState.player.y = fountainBottomY + 50; // Position in front of fountain
+
+            // Teleport companions around the player
+            gameState.companions.forEach((companion, index) => {
+                const angle = (index / gameState.companions.length) * Math.PI * 2;
+                const radius = 80;
+                companion.x = gameState.player.x + Math.cos(angle) * radius;
+                companion.y = gameState.player.y + Math.sin(angle) * radius;
+                companion.targetX = companion.x;
+                companion.targetY = companion.y;
+            });
+        } else {
+            // Not clicking compass - shoot magic
+            if (gameState.player) {
+                gameState.player.shootMagic(gameState.mousePos.x, gameState.mousePos.y);
+            }
         }
     }
 });
 
 // Start Game
 function startGame() {
-    console.log('Starting game...');
-
     document.getElementById('characterCreation').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'block';
 
     // Initialize game objects FIRST
     gameState.village = new Village();
-    console.log('Village created');
 
-    // Start player in center of village
-    gameState.player = new Player(gameState.village.villageCenterX, gameState.village.villageCenterY);
-    console.log('Player created at', gameState.player.x, gameState.player.y);
+    // Set game start time for title fade effect
+    gameState.gameStartTime = Date.now();
+
+    // Start player in front of (below) the cat fountain
+    const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+    const fountainBottomY = gameState.village.catFountain.y + gameState.village.catFountain.height;
+    gameState.player = new Player(fountainCenterX - 24, fountainBottomY + 50); // Center player in front of fountain
 
     // Start as cat
     gameState.player.isCat = true;
@@ -1592,30 +2397,10 @@ function startGame() {
     // Spawn chests (LOTS in the huge forest)
     spawnChests(500);
 
-    console.log('Game objects spawned');
-
     // Start game loop
     gameLoop();
-    console.log('Game loop started');
 
-    // Try to play background music (don't let this break the game)
-    try {
-        bgMusic.play().then(() => {
-            console.log('Music playing');
-        }).catch(err => {
-            console.log('Music failed:', err);
-            // Retry on next click
-            canvas.addEventListener('click', function playRetry() {
-                bgMusic.play().then(() => {
-                    console.log('Music started on retry');
-                }).catch(e => {}).finally(() => {
-                    canvas.removeEventListener('click', playRetry);
-                });
-            }, { once: true });
-        });
-    } catch (e) {
-        console.log('Music error:', e);
-    }
+    // Music will start on first player movement (handled in player update)
 }
 
 function spawnEnemies(count) {
@@ -1657,10 +2442,70 @@ function spawnItems(count) {
 
 function spawnChests(count) {
     for (let i = 0; i < count; i++) {
-        const x = 300 + Math.random() * (gameState.village.width - 600);
-        const y = 300 + Math.random() * (gameState.village.height - 600);
+        let validPosition = false;
+        let x, y, distanceFromCenter = 0;
+        let attempts = 0;
 
-        gameState.chests.push(new Chest(x, y));
+        while (!validPosition && attempts < 50) {
+            x = 300 + Math.random() * (gameState.village.width - 600);
+            y = 300 + Math.random() * (gameState.village.height - 600);
+            validPosition = true;
+            attempts++;
+
+            // Check distance from buildings - must be at least 120 units away or clearly in front
+            for (let building of gameState.village.buildings) {
+                const dx = x - building.x;
+                const dy = y - building.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                // If too close (less than 120 units), only allow if chest is clearly in front (below)
+                if (distance < 120 && y < building.y + 100) {
+                    validPosition = false;
+                    break;
+                }
+            }
+
+            // Check distance from trees - must be at least 60 units away
+            if (validPosition) {
+                for (let tree of gameState.village.trees) {
+                    const dx = x - tree.x;
+                    const dy = y - tree.y;
+                    if (Math.sqrt(dx * dx + dy * dy) < 60) {
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
+
+            // Check distance from cat fountain - must be at least 300 units away from center
+            distanceFromCenter = 0;
+            if (validPosition && gameState.village.catFountain) {
+                const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+                const fountainCenterY = gameState.village.catFountain.y + gameState.village.catFountain.height / 2;
+                const dx = x - fountainCenterX;
+                const dy = y - fountainCenterY;
+                distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
+                if (distanceFromCenter < 300) {
+                    validPosition = false;
+                }
+            }
+
+            // Check distance from other chests
+            if (validPosition) {
+                for (let chest of gameState.chests) {
+                    const dx = x - chest.x;
+                    const dy = y - chest.y;
+                    if (Math.sqrt(dx * dx + dy * dy) < 50) {
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (validPosition) {
+            gameState.chests.push(new Chest(x, y, distanceFromCenter));
+        }
     }
 }
 
@@ -1675,12 +2520,18 @@ function enterHouse(building) {
     }
     gameState.placedFurniture = gameState.houseFurniture[building.id];
 
-    // Store player position in house coordinates - centered on canvas
-    if (!gameState.playerHousePos) {
-        gameState.playerHousePos = { x: canvas.width / 2, y: canvas.height / 2 };
-    }
-    gameState.player.houseX = gameState.playerHousePos.x;
-    gameState.player.houseY = gameState.playerHousePos.y;
+    // Position player near the entrance (bottom center of room)
+    // Room dimensions match drawHouseInterior
+    const margin = 10;
+    const roomWidth = canvas.width - (margin * 2);
+    const roomHeight = canvas.height - (margin * 2) - 140;
+    const roomX = margin;
+    const roomY = margin;
+    const wallThickness = 35;
+
+    // Start player just above the door area (bottom center)
+    gameState.player.houseX = roomX + roomWidth / 2 - gameState.player.width / 2;
+    gameState.player.houseY = roomY + roomHeight - wallThickness - gameState.player.height - 60; // 60px above door
 }
 
 function exitHouse() {
@@ -1710,10 +2561,40 @@ function drawHouseInterior(ctx) {
         const prevX = gameState.player.houseX;
         const prevY = gameState.player.houseY;
 
-        if (gameState.keys['ArrowUp']) gameState.player.houseY -= gameState.player.speed;
-        if (gameState.keys['ArrowDown']) gameState.player.houseY += gameState.player.speed;
-        if (gameState.keys['ArrowLeft']) gameState.player.houseX -= gameState.player.speed;
-        if (gameState.keys['ArrowRight']) gameState.player.houseX += gameState.player.speed;
+        let moved = false;
+        if (gameState.keys['ArrowUp']) {
+            gameState.player.houseY -= gameState.player.speed;
+            moved = true;
+        }
+        if (gameState.keys['ArrowDown']) {
+            gameState.player.houseY += gameState.player.speed;
+            moved = true;
+        }
+        if (gameState.keys['ArrowLeft']) {
+            gameState.player.houseX -= gameState.player.speed;
+            gameState.player.facingRight = false;
+            moved = true;
+        }
+        if (gameState.keys['ArrowRight']) {
+            gameState.player.houseX += gameState.player.speed;
+            gameState.player.facingRight = true;
+            moved = true;
+        }
+
+        // Update walking animation for cat
+        if (gameState.player.isCat) {
+            gameState.player.isMoving = moved;
+            if (moved) {
+                gameState.player.walkingFrameCounter++;
+                if (gameState.player.walkingFrameCounter >= 10) {
+                    gameState.player.walkingFrame = (gameState.player.walkingFrame + 1) % 2;
+                    gameState.player.walkingFrameCounter = 0;
+                }
+            } else {
+                gameState.player.walkingFrameCounter = 0;
+                gameState.player.walkingFrame = 0;
+            }
+        }
 
         // Proper collision with walls - keep player fully inside room
         const leftBound = roomX + wallThickness;
@@ -1727,20 +2608,7 @@ function drawHouseInterior(ctx) {
             gameState.player.houseY = prevY;
         }
 
-        // Check if player is in the door area at the bottom (exit zone)
-        const doorLeft = roomX + roomWidth / 2 - 30;
-        const doorRight = roomX + roomWidth / 2 + 30;
-        const doorTop = roomY + roomHeight - wallThickness;
-
-        // If player is near the door, show exit hint
-        if (gameState.player.houseY + gameState.player.height >= doorTop - 20 &&
-            gameState.player.houseX + gameState.player.width / 2 >= doorLeft &&
-            gameState.player.houseX + gameState.player.width / 2 <= doorRight) {
-            // Player is in door area - pressing E or down will exit
-            if (gameState.keys['e'] || gameState.keys['E']) {
-                exitHouse();
-            }
-        }
+        // Door area is at the bottom center (no special handling needed - E exits from anywhere)
     }
 
     // Update companions in house
@@ -1853,6 +2721,72 @@ function drawHouseInterior(ctx) {
         }
     }
 
+    // Update and draw dropped companions in house
+    for (let i = gameState.droppedCompanions.length - 1; i >= 0; i--) {
+        const dropped = gameState.droppedCompanions[i];
+
+        // Skip if this companion is outside
+        if (!dropped.isInHouse || dropped.houseId !== gameState.currentHouseId) continue;
+
+        // Initialize house position if not set
+        if (!dropped.houseX) {
+            dropped.houseX = dropped.x || roomX + roomWidth / 2;
+            dropped.houseY = dropped.y || roomY + roomHeight / 2;
+        }
+
+        // Wandering behavior
+        dropped.wanderCooldown = (dropped.wanderCooldown || 0) - 16;
+        if (dropped.wanderCooldown <= 0 && (!dropped.wanderTarget || (Math.abs(dropped.houseX - dropped.wanderTarget.x) < 5 && Math.abs(dropped.houseY - dropped.wanderTarget.y) < 5))) {
+            // Pick new random wander target
+            dropped.wanderTarget = {
+                x: roomX + 50 + Math.random() * (roomWidth - 100),
+                y: roomY + 50 + Math.random() * (roomHeight - 100)
+            };
+            dropped.wanderCooldown = 2000 + Math.random() * 3000; // 2-5 seconds
+        }
+
+        // Move towards wander target
+        if (dropped.wanderTarget) {
+            const dx = dropped.wanderTarget.x - dropped.houseX;
+            const dy = dropped.wanderTarget.y - dropped.houseY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 1) {
+                const speed = 0.5;
+                dropped.houseX += (dx / dist) * speed;
+                dropped.houseY += (dy / dist) * speed;
+            }
+        }
+
+        // Check if player touches the dropped companion
+        if (gameState.player) {
+            const dx = dropped.houseX - gameState.player.houseX;
+            const dy = dropped.houseY - gameState.player.houseY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < 40) {
+                // Pick up the companion and add back to line
+                gameState.companions.push(dropped.companion);
+                gameState.droppedCompanions.splice(i, 1);
+                continue;
+            }
+        }
+
+        // Draw dropped companion (scaled with companion size)
+        const companionSize = dropped.companion.sizeMultiplier || 1.0;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(dropped.houseX + (20 * companionSize), dropped.houseY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const image = friendImages[dropped.type];
+        if (image && image.complete) {
+            dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
+            const width = 40 * companionSize;
+            const height = 40 * companionSize;
+            ctx.drawImage(image, dropped.houseX, dropped.houseY + Math.sin(dropped.bobOffset) * 2, width, height);
+        }
+    }
+
     // Draw player
     if (gameState.player) {
         // Shadow
@@ -1863,8 +2797,24 @@ function drawHouseInterior(ctx) {
 
         // Draw player sprite
         if (gameState.player.isCat) {
-            if (catImage.complete) {
-                ctx.drawImage(catImage, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
+            // Select sprite based on movement state
+            let catSprite = catImage; // Default idle
+            if (gameState.player.isMoving) {
+                catSprite = gameState.player.walkingFrame === 0 ? catWalking1 : catWalking2;
+            }
+
+            if (catSprite.complete) {
+                ctx.save();
+                if (gameState.player.facingRight) {
+                    // Flip horizontally for right movement
+                    ctx.translate(gameState.player.houseX + gameState.player.width, gameState.player.houseY);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(catSprite, 0, 0, gameState.player.width, gameState.player.height);
+                } else {
+                    // Normal left-facing sprite
+                    ctx.drawImage(catSprite, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
+                }
+                ctx.restore();
             }
         } else {
             if (girlImage.complete) {
@@ -2229,6 +3179,164 @@ function placeFurniture(x, y) {
     gameState.furnitureRotation = 0;
 }
 
+// Handle player interactions with priority
+function handleInteractions() {
+    const eKeyPressed = gameState.keys['e'] || gameState.keys['E'];
+
+    // Only trigger on new key press, not when held down
+    if (!eKeyPressed) {
+        gameState.eKeyWasPressed = false;
+        return;
+    }
+
+    if (gameState.eKeyWasPressed) {
+        return; // Key is being held, don't trigger again
+    }
+
+    gameState.eKeyWasPressed = true;
+
+    if (!gameState.player) return;
+
+    // If inside house, E key exits from anywhere
+    if (gameState.isInsideHouse) {
+        exitHouse();
+        return;
+    }
+
+    const player = gameState.player;
+    const interactions = [];
+
+    // Collect all closed FREE chests in range (E key only opens tier 0)
+    for (let chest of gameState.chests) {
+        if (!chest.opened && chest.fireflyCost === 0 && chest.isNear(player, 60)) {
+            const dx = chest.x - player.x;
+            const dy = chest.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            interactions.push({
+                type: 'chest',
+                target: chest,
+                distance: distance,
+                priority: 1 // Highest priority
+            });
+        }
+    }
+
+    // Collect all buildings (houses) in range
+    if (gameState.village) {
+        const canEnter = Date.now() - gameState.lastHouseExitTime > 500;
+        if (canEnter) {
+            for (let building of gameState.village.buildings) {
+                if (player.isNear(building, 200)) {
+                    const dx = building.x - player.x;
+                    const dy = building.y - player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    interactions.push({
+                        type: 'building',
+                        target: building,
+                        distance: distance,
+                        priority: 2 // Lower priority than chests
+                    });
+                }
+            }
+        }
+    }
+
+    // If no interactions available, return
+    if (interactions.length === 0) {
+        return;
+    }
+
+    // Sort by priority first, then by distance
+    interactions.sort((a, b) => {
+        if (a.priority !== b.priority) {
+            return a.priority - b.priority; // Lower number = higher priority
+        }
+        return a.distance - b.distance; // Closer is better
+    });
+
+    // Trigger the highest priority, closest interaction
+    const chosen = interactions[0];
+    if (chosen.type === 'chest') {
+        chosen.target.open();
+    } else if (chosen.type === 'building') {
+        enterHouse(chosen.target);
+    }
+}
+
+// Handle F key for opening large chests (with firefly cost)
+function handleFKeyInteractions() {
+    const fKeyPressed = gameState.keys['f'] || gameState.keys['F'];
+
+    // Only trigger on new key press, not when held down
+    if (!fKeyPressed) {
+        gameState.fKeyWasPressed = false;
+        return;
+    }
+
+    if (gameState.fKeyWasPressed) {
+        return; // Key is being held, don't trigger again
+    }
+
+    gameState.fKeyWasPressed = true;
+
+    if (!gameState.player || gameState.isInsideHouse) return;
+
+    const player = gameState.player;
+
+    // Find closest large chest (fireflyCost > 0) in range
+    let closestChest = null;
+    let closestDistance = Infinity;
+
+    for (let chest of gameState.chests) {
+        if (!chest.opened && chest.fireflyCost > 0 && chest.isNear(player, 80 * chest.sizeMultiplier)) {
+            const dx = chest.x - player.x;
+            const dy = chest.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestChest = chest;
+            }
+        }
+    }
+
+    // Try to open the chest
+    if (closestChest) {
+        closestChest.open(); // The open() method now checks firefly count
+    }
+}
+
+// Spawn fireflies
+function spawnFireflies() {
+    gameState.fireflies = [];
+
+    // Spawn many fireflies across the map so they're visible "all over" at night
+    // With a 16000x12000 map and 1200x800 viewport, we need ~3000+ to see multiple per screen
+    const fireflyCount = 3000;
+    for (let i = 0; i < fireflyCount; i++) {
+        const x = Math.random() * gameState.village.width;
+        const y = Math.random() * gameState.village.height;
+
+        gameState.fireflies.push({
+            x: x,
+            y: y,
+            hue: 0, // Initial hue (no rotation)
+            xpValue: 10, // XP value increases by 5 each time hit by magic
+            size: 32, // Size in pixels (grows with magic hits)
+            isRainbow: false, // After full color cycle, undulates rainbow
+            floatOffset: Math.random() * Math.PI * 2, // Random start for floating animation
+            floatSpeed: 0.02 + Math.random() * 0.03,
+            driftX: (Math.random() - 0.5) * 0.3,
+            driftY: (Math.random() - 0.5) * 0.3
+        });
+    }
+}
+
+// Clear fireflies
+function clearFireflies() {
+    gameState.fireflies = [];
+}
+
 // Day/Night Cycle
 function updateDayNightCycle(deltaTime) {
     gameState.gameTime += deltaTime;
@@ -2239,6 +3347,15 @@ function updateDayNightCycle(deltaTime) {
 
     // 0-0.25 = Morning, 0.25-0.5 = Day, 0.5-0.75 = Evening, 0.75-1 = Night
     gameState.isNight = gameState.timeOfDay > 0.6 || gameState.timeOfDay < 0.1;
+
+    // Detect transitions
+    if (gameState.isNight && !gameState.previousIsNight) {
+        // Just became night - spawn fireflies
+        spawnFireflies();
+    } else if (!gameState.isNight && gameState.previousIsNight) {
+        // Just became day - clear fireflies
+        clearFireflies();
+    }
 
     // Chests no longer reset at dawn - removed feature
 }
@@ -2252,8 +3369,8 @@ function respawnEnemies() {
 
 // Draw sun/moon indicator
 function drawSunMoon(ctx) {
-    const x = canvas.width - 80;  // Move to top-right area
-    const y = 80;  // Lower to avoid UI overlap
+    const x = canvas.width - 60;  // Closer to right corner
+    const y = 60;  // Closer to top corner
     const radius = 30;
 
     if (gameState.isNight) {
@@ -2306,12 +3423,250 @@ function drawSunMoon(ctx) {
         ctx.arc(x, y, radius + 8, 0, Math.PI * 2);
         ctx.stroke();
     }
+
+    // Draw pie chart timer overlay showing time until next phase
+    ctx.save();
+
+    // Calculate time REMAINING until next phase (countdown style)
+    // Day: 0.1 to 0.6 (50% of cycle)
+    // Night: 0.6 to 1.0, then 0.0 to 0.1 (50% of cycle, wraps around)
+    let elapsed;
+    if (gameState.isNight) {
+        // Night phase: 0.6-1.0 (40% of night) then 0.0-0.1 (10% of night)
+        if (gameState.timeOfDay >= 0.6) {
+            // First part of night (0.6 to 1.0)
+            elapsed = (gameState.timeOfDay - 0.6) / 0.5;
+        } else {
+            // Second part of night (0.0 to 0.1)
+            elapsed = (0.4 + gameState.timeOfDay) / 0.5;
+        }
+    } else {
+        // Day phase: 0.1 to 0.6
+        elapsed = (gameState.timeOfDay - 0.1) / 0.5;
+    }
+
+    // Invert to show remaining time (starts full, counts down)
+    const remaining = 1 - elapsed;
+
+    // Draw pie chart as a filled arc (clockwise from top)
+    const startAngle = -Math.PI / 2; // Start at top
+    const endAngle = startAngle + (remaining * Math.PI * 2); // Sweep clockwise
+
+    // Semi-transparent overlay
+    if (gameState.isNight) {
+        ctx.fillStyle = 'rgba(100, 100, 150, 0.4)'; // Bluish for night
+    } else {
+        ctx.fillStyle = 'rgba(139, 69, 19, 0.5)'; // Dark brown for day (contrasts with yellow sun)
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(x, y); // Center
+    ctx.arc(x, y, radius, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw outline for the timer
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Draw compass below sun/moon (points to cat fountain)
+    if (gameState.player && gameState.village && gameState.village.catFountain) {
+        const compassX = x;
+        const compassY = y + radius + 50;
+        const compassRadius = 25;
+
+        // Calculate fountain center position
+        const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+        const fountainCenterY = gameState.village.catFountain.y + gameState.village.catFountain.height / 2;
+
+        const dx = fountainCenterX - gameState.player.x;
+        const dy = fountainCenterY - gameState.player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx);
+
+        // Check if fountain is on screen
+        const fountainScreenX = gameState.village.catFountain.x - gameState.camera.x;
+        const fountainScreenY = gameState.village.catFountain.y - gameState.camera.y;
+        const isFountainOnScreen = (
+            fountainScreenX + gameState.village.catFountain.width > 0 &&
+            fountainScreenX < canvas.width &&
+            fountainScreenY + gameState.village.catFountain.height > 0 &&
+            fountainScreenY < canvas.height
+        );
+
+        if (isFountainOnScreen && catFountainImage.complete) {
+            // Show fountain image in compass when on screen (smaller thumbnail)
+            const thumbnailSize = compassRadius * 1.4; // Smaller than full compass
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(
+                catFountainImage,
+                compassX - thumbnailSize / 2,
+                compassY - thumbnailSize / 2,
+                thumbnailSize,
+                thumbnailSize
+            );
+            ctx.restore();
+
+            // Border (with glow at night)
+            ctx.save();
+            if (gameState.isNight) {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
+            }
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        } else {
+            // Show compass needle pointing to fountain when off screen
+
+            // Compass outer circle
+            ctx.fillStyle = 'rgba(40, 30, 20, 0.8)';
+            ctx.beginPath();
+            ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Compass inner circle
+            ctx.fillStyle = 'rgba(60, 50, 40, 0.9)';
+            ctx.beginPath();
+            ctx.arc(compassX, compassY, compassRadius - 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cardinal direction marks
+            ctx.strokeStyle = 'rgba(200, 180, 150, 0.6)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 4; i++) {
+                const markAngle = (i * Math.PI) / 2;
+                const x1 = compassX + Math.cos(markAngle) * (compassRadius - 8);
+                const y1 = compassY + Math.sin(markAngle) * (compassRadius - 8);
+                const x2 = compassX + Math.cos(markAngle) * (compassRadius - 3);
+                const y2 = compassY + Math.sin(markAngle) * (compassRadius - 3);
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+
+            // Compass needle pointing to fountain
+            ctx.save();
+            ctx.translate(compassX, compassY);
+            ctx.rotate(angle - Math.PI / 2); // Subtract 90 degrees to align needle correctly
+
+            // Needle shadow
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.moveTo(0, -15);
+            ctx.lineTo(-4, 2);
+            ctx.lineTo(4, 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Red side (pointing to fountain)
+            ctx.fillStyle = '#DC143C';
+            ctx.strokeStyle = '#8B0000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, -15);
+            ctx.lineTo(-3, 0);
+            ctx.lineTo(3, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // White side (opposite)
+            ctx.fillStyle = '#F5F5DC';
+            ctx.strokeStyle = '#8B7355';
+            ctx.beginPath();
+            ctx.moveTo(0, 15);
+            ctx.lineTo(-3, 0);
+            ctx.lineTo(3, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Center dot
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(0, 0, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+
+            // Compass border (with glow at night)
+            ctx.save();
+            if (gameState.isNight) {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = 'rgba(100, 80, 60, 0.8)';
+            }
+            ctx.strokeStyle = 'rgba(100, 80, 60, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(compassX, compassY, compassRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // Draw compass tooltip if hovering
+        if (gameState.compassHover) {
+            const tooltipText = 'Teleport to fountain';
+            ctx.save();
+            ctx.font = 'bold 12px Arial';
+            const textWidth = ctx.measureText(tooltipText).width;
+            const tooltipX = compassX - textWidth / 2;
+            const tooltipY = compassY + compassRadius + 30;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillRect(tooltipX - 5, tooltipY - 15, textWidth + 10, 20);
+
+            // Text
+            ctx.fillStyle = '#FFD700';
+            ctx.textAlign = 'center';
+            ctx.fillText(tooltipText, compassX, tooltipY - 3);
+            ctx.restore();
+        }
+    }
+}
+
+// Gain XP and level up
+function gainXP(amount) {
+    gameState.xp += amount;
+
+    // Check for level up
+    while (gameState.xp >= gameState.xpToNextLevel) {
+        gameState.xp -= gameState.xpToNextLevel;
+        gameState.level++;
+        gameState.xpToNextLevel = Math.floor(gameState.xpToNextLevel * 1.5); // Each level requires 50% more XP
+
+        // Level up effects
+        gameState.player.maxHealth += 20;
+        gameState.player.health = gameState.player.maxHealth;
+
+        // Spawn particles for level up
+        for (let i = 0; i < 30; i++) {
+            gameState.particles.push(new Particle(
+                gameState.player.x + gameState.player.width / 2,
+                gameState.player.y + gameState.player.height / 2,
+                '#FFD700'
+            ));
+        }
+    }
 }
 
 // UI Updates
 function updateUI() {
     if (!gameState.player) return;
-    // No UI elements to update currently
+    // UI is drawn in the game loop on the canvas
 }
 
 // Game Loop
@@ -2321,6 +3676,14 @@ function gameLoop() {
     const now = Date.now();
     const deltaTime = now - lastTime;
     lastTime = now;
+
+    // Auto-show controls panel after 5 seconds of inactivity (only at game start before player moves)
+    const idleTime = now - gameState.lastActivityTime;
+    const controlsPanel = document.getElementById('controlsPanel');
+    if (idleTime > 5000 && !gameState.controlsPanelShown && !gameState.hasPlayerMoved && controlsPanel) {
+        controlsPanel.style.display = 'block';
+        gameState.controlsPanelShown = true;
+    }
 
     // Clear canvas
     ctx.fillStyle = '#000';
@@ -2334,15 +3697,9 @@ function gameLoop() {
         // Update day/night cycle
         updateDayNightCycle(deltaTime);
 
-        // Apply day/night overlay
-        if (gameState.isNight) {
-            ctx.fillStyle = 'rgba(0, 0, 50, 0.5)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-
-        // Draw village
+        // Draw village ground (before night overlay)
         if (gameState.village) {
-            gameState.village.draw(ctx);
+            gameState.village.drawGround(ctx);
         }
 
         // Update and draw items
@@ -2351,22 +3708,62 @@ function gameLoop() {
             item.draw(ctx);
         }
 
-        // Update and draw chests
+        // Update chests (draw later, after night overlay)
         for (let chest of gameState.chests) {
             chest.update();
-            chest.draw(ctx);
         }
 
-        // Update and draw player
+        // Update player (draw later, after night overlay)
         if (gameState.player) {
             gameState.player.update();
-            gameState.player.draw(ctx);
         }
 
         // Update and draw companions
         for (let companion of gameState.companions) {
             companion.update();
             companion.draw(ctx);
+        }
+
+        // Update and draw dropped companions (outside only)
+        for (let i = gameState.droppedCompanions.length - 1; i >= 0; i--) {
+            const dropped = gameState.droppedCompanions[i];
+
+            // Skip if this companion is in a house (those are handled in drawHouseInterior)
+            if (dropped.isInHouse) continue;
+
+            // Check if player touches the dropped companion
+            if (gameState.player) {
+                const dx = dropped.x - gameState.player.x;
+                const dy = dropped.y - gameState.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < 40) {
+                    // Pick up the companion and add back to line
+                    gameState.companions.push(dropped.companion);
+                    gameState.droppedCompanions.splice(i, 1);
+                    continue;
+                }
+            }
+
+            // Draw the companion at their dropped position
+            const screenX = dropped.x - gameState.camera.x;
+            const screenY = dropped.y - gameState.camera.y;
+
+            // Draw shadow (scaled with companion size)
+            const companionSize = dropped.companion.sizeMultiplier || 1.0;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.ellipse(screenX + (20 * companionSize), screenY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw friend image (scaled with companion size)
+            const image = friendImages[dropped.type];
+            if (image && image.complete) {
+                dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
+                const width = 40 * companionSize;
+                const height = 40 * companionSize;
+                ctx.drawImage(image, screenX, screenY + Math.sin(dropped.bobOffset) * 2, width, height);
+            }
         }
 
         // Update and draw projectiles
@@ -2387,8 +3784,322 @@ function gameLoop() {
             return !shouldRemove;
         });
 
-        // Draw sun/moon indicator
+        // Apply night overlay to darken everything
+        if (gameState.isNight) {
+            ctx.fillStyle = 'rgba(0, 0, 30, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Draw fireflies above the night overlay so they stay bright
+        if (gameState.isNight && fireflyImage.complete) {
+            gameState.fireflies = gameState.fireflies.filter(firefly => {
+                // Update floating animation
+                firefly.floatOffset += firefly.floatSpeed;
+                firefly.x += firefly.driftX;
+                firefly.y += firefly.driftY;
+
+                // Keep fireflies within village bounds
+                if (firefly.x < 0) firefly.x = gameState.village.width;
+                if (firefly.x > gameState.village.width) firefly.x = 0;
+                if (firefly.y < 0) firefly.y = gameState.village.height;
+                if (firefly.y > gameState.village.height) firefly.y = 0;
+
+                // Check if player touches firefly
+                if (gameState.player) {
+                    const dx = firefly.x - (gameState.player.x + gameState.player.width / 2);
+                    const dy = firefly.y - (gameState.player.y + gameState.player.height / 2);
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 40) {
+                        // Player picked up firefly - give XP based on value and increment jar count
+                        gainXP(firefly.xpValue || 10);
+                        gameState.fireflyCount++;
+                        return false; // Remove firefly
+                    }
+                }
+
+                const screenX = firefly.x - gameState.camera.x;
+                const screenY = firefly.y - gameState.camera.y + Math.sin(firefly.floatOffset) * 5;
+
+                // Use dynamic size (grows with magic hits)
+                const size = firefly.size || 32;
+                const halfSize = size / 2;
+
+                // Rainbow fireflies undulate through colors continuously
+                if (firefly.isRainbow) {
+                    firefly.hue = (firefly.hue + 2) % 360;
+                }
+
+                // Apply glow effect and draw firefly with hue rotation
+                ctx.save();
+
+                // Convert hue to color for glow
+                // Fireflies start yellow (60° hue) and rotate through the spectrum
+                let glowColor = '#FFFF00'; // Default yellow
+                if (firefly.hue > 0 || firefly.isRainbow) {
+                    const totalHue = (60 + firefly.hue) % 360; // Start at yellow (60°)
+                    // Convert HSL to RGB for glow
+                    const h = totalHue / 60;
+                    const x = 1 - Math.abs((h % 2) - 1);
+                    let r, g, b;
+                    if (h < 1) { r = 1; g = x; b = 0; }
+                    else if (h < 2) { r = x; g = 1; b = 0; }
+                    else if (h < 3) { r = 0; g = 1; b = x; }
+                    else if (h < 4) { r = 0; g = x; b = 1; }
+                    else if (h < 5) { r = x; g = 0; b = 1; }
+                    else { r = 1; g = 0; b = x; }
+                    glowColor = `rgb(${Math.round(r*255)}, ${Math.round(g*255)}, ${Math.round(b*255)})`;
+                }
+
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = glowColor;
+
+                // Get cached hue-rotated firefly image (or use original if no hue rotation)
+                const fireflyImg = firefly.hue > 0
+                    ? getCachedFireflyImage(firefly.hue, size)
+                    : fireflyImage;
+
+                // Draw firefly multiple times for stronger glow
+                if (firefly.hue > 0) {
+                    // Draw cached colored version
+                    ctx.drawImage(fireflyImg, screenX - halfSize, screenY - halfSize, size, size);
+                    ctx.shadowBlur = 15; // Slightly smaller for second pass
+                    ctx.drawImage(fireflyImg, screenX - halfSize, screenY - halfSize, size, size);
+                } else {
+                    // Draw original yellow firefly
+                    ctx.drawImage(fireflyImage, screenX - halfSize, screenY - halfSize, size, size);
+                    ctx.shadowBlur = 15; // Slightly smaller for second pass
+                    ctx.drawImage(fireflyImage, screenX - halfSize, screenY - halfSize, size, size);
+                }
+
+                ctx.restore();
+
+                return true; // Keep firefly
+            });
+        }
+
+        // Draw buildings and fountain after night overlay to stay bright
+        if (gameState.village) {
+            gameState.village.drawBuildings(ctx);
+        }
+
+        // Draw chests after night overlay to stay bright
+        for (let chest of gameState.chests) {
+            chest.draw(ctx);
+        }
+
+        // Draw trees above buildings and chests
+        if (gameState.village) {
+            for (let tree of gameState.village.trees) {
+                gameState.village.drawTree(ctx, tree);
+            }
+        }
+
+        // Draw player and companions after night overlay so they stay bright
+        if (gameState.player) {
+            gameState.player.draw(ctx);
+        }
+
+        // Draw companions
+        for (let companion of gameState.companions) {
+            companion.draw(ctx);
+        }
+
+        // Draw fading title over fountain at game start
+        if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0) {
+            const timeSinceStart = Date.now() - gameState.gameStartTime;
+            const fadeDuration = 4000; // 4 seconds
+
+            if (timeSinceStart < fadeDuration) {
+                // Calculate opacity (fade from 1 to 0)
+                const opacity = 1 - (timeSinceStart / fadeDuration);
+
+                // Position title above the fountain
+                const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
+                const fountainTopY = gameState.village.catFountain.y - 50; // 50px above fountain
+
+                // Convert to screen coordinates
+                const screenX = fountainCenterX - gameState.camera.x;
+                const screenY = fountainTopY - gameState.camera.y;
+
+                // Draw title with fade effect
+                ctx.save();
+                ctx.globalAlpha = opacity;
+                ctx.font = 'bold 48px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Draw shadow
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillText("Clara's Cat Town", screenX + 3, screenY + 3);
+
+                // Draw gradient text
+                const gradient = ctx.createLinearGradient(screenX - 200, screenY, screenX + 200, screenY);
+                gradient.addColorStop(0, '#FF0000');
+                gradient.addColorStop(0.16, '#FF7F00');
+                gradient.addColorStop(0.33, '#FFFF00');
+                gradient.addColorStop(0.5, '#00FF00');
+                gradient.addColorStop(0.66, '#0000FF');
+                gradient.addColorStop(0.83, '#4B0082');
+                gradient.addColorStop(1, '#9400D3');
+                ctx.fillStyle = gradient;
+                ctx.fillText("Clara's Cat Town", screenX, screenY);
+
+                ctx.restore();
+            }
+        }
+
+        // Draw sun/moon indicator on top of everything
         drawSunMoon(ctx);
+    }
+
+    // Handle player interactions (E key) - works both inside and outside houses
+    handleInteractions();
+
+    // Handle F key for large chests (only outside)
+    if (!gameState.isInsideHouse) {
+        handleFKeyInteractions();
+    }
+
+    // Draw level and XP HUD in upper left
+    if (!gameState.isInsideHouse) {
+        const hudX = 20;
+        const hudY = 20;
+        const hudWidth = 100;
+        const hudHeight = 60;
+        const cornerRadius = 10;
+
+        // Draw rounded rectangle background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.beginPath();
+        ctx.roundRect(hudX, hudY, hudWidth, hudHeight, cornerRadius);
+        ctx.fill();
+
+        // Add pulsing glow when speed boost is active
+        const hasSpeedBoost = gameState.player && gameState.player.speedBoostEndTime > Date.now();
+        if (hasSpeedBoost) {
+            const pulseSpeed = 0.008; // Speed of pulse
+            const pulseIntensity = Math.sin(Date.now() * pulseSpeed) * 0.5 + 0.5; // 0 to 1
+            const glowIntensity = 30 + pulseIntensity * 60; // Pulse between 30 and 90
+            const heartColor = gameState.player.speedBoostColor || '#FFD700';
+
+            // Draw multiple glow layers for stronger effect
+            ctx.save();
+            for (let i = 0; i < 3; i++) {
+                ctx.shadowBlur = glowIntensity;
+                ctx.shadowColor = heartColor;
+                ctx.strokeStyle = heartColor;
+                ctx.lineWidth = 5;
+                ctx.globalAlpha = 0.3;
+                ctx.beginPath();
+                ctx.roundRect(hudX - 2, hudY - 2, hudWidth + 4, hudHeight + 4, cornerRadius + 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        // Rainbow gradient border
+        const rainbowGradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
+        rainbowGradient.addColorStop(0, '#FF0000');
+        rainbowGradient.addColorStop(0.16, '#FF7F00');
+        rainbowGradient.addColorStop(0.33, '#FFFF00');
+        rainbowGradient.addColorStop(0.5, '#00FF00');
+        rainbowGradient.addColorStop(0.66, '#0000FF');
+        rainbowGradient.addColorStop(0.83, '#4B0082');
+        rainbowGradient.addColorStop(1, '#9400D3');
+
+        ctx.strokeStyle = rainbowGradient;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(hudX, hudY, hudWidth, hudHeight, cornerRadius);
+        ctx.stroke();
+
+        // Level text
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 18px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(`Level ${gameState.level}`, hudX + 10, hudY + 8);
+
+        // XP bar background
+        const barX = hudX + 10;
+        const barY = hudY + 35;
+        const barWidth = 80;
+        const barHeight = 15;
+
+        ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
+        ctx.fillRect(barX, barY, barWidth, barHeight);
+
+        // XP bar fill
+        const xpPercent = gameState.xp / gameState.xpToNextLevel;
+        const fillWidth = barWidth * xpPercent;
+
+        const gradient = ctx.createLinearGradient(barX, barY, barX + fillWidth, barY);
+        gradient.addColorStop(0, '#4169E1');
+        gradient.addColorStop(1, '#1E90FF');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(barX, barY, fillWidth, barHeight);
+
+        // XP bar border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+        // XP text
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${gameState.xp} / ${gameState.xpToNextLevel}`, barX + barWidth / 2, barY + barHeight / 2);
+
+        // Draw firefly jar to the right of level HUD
+        const jarX = hudX + hudWidth + 15;
+        const jarY = hudY;
+        // Jar images are 677x874 (aspect ratio ~0.775)
+        const jarHeight = 60; // Shorter to match HUD height
+        const jarWidth = 46; // Maintains aspect ratio
+
+        // Choose empty or full jar based on firefly count
+        const jarImage = gameState.fireflyCount > 0 ? fullJarImage : emptyJarImage;
+
+        if (jarImage && jarImage.complete) {
+            ctx.save();
+
+            // Make jar partly transparent
+            ctx.globalAlpha = 0.8;
+
+            // Add glow at night if jar has fireflies (brighter with more fireflies)
+            if (gameState.isNight && gameState.fireflyCount > 0) {
+                const glowIntensity = Math.min(15 + gameState.fireflyCount * 2, 40);
+                ctx.shadowBlur = glowIntensity;
+                ctx.shadowColor = '#FFFF00'; // Yellow glow
+            }
+
+            ctx.drawImage(jarImage, jarX, jarY, jarWidth, jarHeight);
+            ctx.restore();
+
+            // Draw firefly count if > 0
+            if (gameState.fireflyCount > 0) {
+                ctx.save();
+                ctx.font = 'bold 20px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Position text lower to center in visible jar area
+                const textY = jarY + jarHeight * 0.6;
+
+                // Shadow for text
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillText(gameState.fireflyCount, jarX + jarWidth / 2 + 2, textY + 2);
+
+                // White text
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(gameState.fireflyCount, jarX + jarWidth / 2, textY);
+
+                ctx.restore();
+            }
+        }
     }
 
     // Update UI
@@ -2400,7 +4111,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.1.0', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.0', canvas.width - 5, canvas.height - 5);
     ctx.restore();
 
     requestAnimationFrame(gameLoop);

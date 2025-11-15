@@ -67,25 +67,6 @@
     </div>
 
     <div id="gameScreen" class="screen" style="display: none;">
-        <div id="gameTitleVertical" class="game-title-vertical">
-            <span class="rainbow-letter">C</span>
-            <span class="rainbow-letter">l</span>
-            <span class="rainbow-letter">a</span>
-            <span class="rainbow-letter">r</span>
-            <span class="rainbow-letter">a</span>
-            <span class="rainbow-letter">'</span>
-            <span class="rainbow-letter">s</span>
-            <span class="rainbow-letter"> </span>
-            <span class="rainbow-letter">C</span>
-            <span class="rainbow-letter">a</span>
-            <span class="rainbow-letter">t</span>
-            <span class="rainbow-letter"> </span>
-            <span class="rainbow-letter">T</span>
-            <span class="rainbow-letter">o</span>
-            <span class="rainbow-letter">w</span>
-            <span class="rainbow-letter">n</span>
-        </div>
-
         <canvas id="gameCanvas" width="1200" height="800"></canvas>
 
         <div id="gameUI">
@@ -93,10 +74,23 @@
                 <button id="helpButton" class="help-button">?</button>
                 <div id="controlsPanel" class="controls-panel" style="display: none;">
                     <div class="controls-title">Controls</div>
+                    <div class="control-item"><strong>ESC</strong> - Close Menu</div>
                     <div class="control-item"><strong>Arrow Keys</strong> - Move</div>
                     <div class="control-item"><strong>T</strong> - Transform</div>
                     <div class="control-item"><strong>SPACE</strong> - Magic Attack</div>
-                    <div class="control-item"><strong>E</strong> - Interact</div>
+                    <div class="control-item"><strong>E</strong> - Interact / Exit House</div>
+                    <div class="control-item"><strong>F</strong> - Place Friend</div>
+                    <div class="control-item"><strong>HOME</strong> - Teleport to Fountain</div>
+
+                    <div class="controls-divider"></div>
+
+                    <div class="controls-title">Audio</div>
+                    <div class="audio-controls-inline">
+                        <button id="prevButton" class="audio-button">⏮</button>
+                        <button id="muteButton" class="audio-button">🔊</button>
+                        <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
+                        <button id="nextButton" class="audio-button">⏭</button>
+                    </div>
                 </div>
             </div>
         </div>
