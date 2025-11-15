@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.0
+// Clara's Cat Town - Version 0.2.1
 
 // Game Configuration
 const CONFIG = {
@@ -404,20 +404,18 @@ class Player {
             moved = true;
         }
 
-        // Update walking animation for cat
-        if (this.isCat) {
-            this.isMoving = moved;
-            if (moved) {
-                this.walkingFrameCounter++;
-                // Switch frame every 10 updates (adjust for speed)
-                if (this.walkingFrameCounter >= 10) {
-                    this.walkingFrame = (this.walkingFrame + 1) % 2;
-                    this.walkingFrameCounter = 0;
-                }
-            } else {
+        // Update walking animation for both cat and human
+        this.isMoving = moved;
+        if (moved) {
+            this.walkingFrameCounter++;
+            // Switch frame every 10 updates (adjust for speed)
+            if (this.walkingFrameCounter >= 10) {
+                this.walkingFrame = (this.walkingFrame + 1) % 2;
                 this.walkingFrameCounter = 0;
-                this.walkingFrame = 0;
             }
+        } else {
+            this.walkingFrameCounter = 0;
+            this.walkingFrame = 0;
         }
 
         // Track that player has moved (for idle menu logic)
@@ -499,11 +497,14 @@ class Player {
                    this.y + offsetY + catHeight > obj.y;
         }
 
-        // Normal human collision
+        // Human form - only use lower half for collision
+        const humanCollisionHeight = this.height * 0.5; // Lower half only
+        const humanCollisionY = this.y + (this.height - humanCollisionHeight); // Start from middle
+
         return this.x < obj.x + obj.width &&
                this.x + this.width > obj.x &&
-               this.y < obj.y + obj.height &&
-               this.y + this.height > obj.y;
+               humanCollisionY < obj.y + obj.height &&
+               humanCollisionY + humanCollisionHeight > obj.y;
     }
 
     isNear(obj, distance) {
@@ -610,23 +611,44 @@ class Player {
     }
 
     drawHuman(ctx, x, y) {
-        // Shadow
+        // Girl-walking images are 590x1024 (aspect ratio ~0.576)
+        // Adjust rendered size to match this ratio to avoid stretching
+        const girlWidth = 40;  // Adjusted from 48 to match aspect ratio
+        const girlHeight = 70; // Adjusted from 64 to match aspect ratio
+
+        // Shadow (adjusted for new size)
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.beginPath();
-        ctx.ellipse(x + 15, y + 42, 12, 4, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + girlWidth/2, y + girlHeight - 5, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw girl sprite with purple glow at night
-        if (girlImage.complete) {
+        // Always use walking sprites (alternate for idle, animate when moving)
+        let girlSprite = girlWalking1; // Default idle uses walking1
+        if (this.isMoving) {
+            girlSprite = this.walkingFrame === 0 ? girlWalking1 : girlWalking2;
+        }
+
+        // Draw girl sprite with optional flip and purple glow at night
+        if (girlSprite.complete) {
+            ctx.save();
+
+            // Add purple glow at night
             if (gameState.isNight) {
-                ctx.save();
                 ctx.shadowBlur = 15;
                 ctx.shadowColor = '#9370DB'; // Medium purple
-                ctx.drawImage(girlImage, x, y, this.width, this.height);
-                ctx.restore();
-            } else {
-                ctx.drawImage(girlImage, x, y, this.width, this.height);
             }
+
+            if (this.facingRight) {
+                // Flip horizontally for right-facing
+                ctx.translate(x + girlWidth, y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(girlSprite, 0, 0, girlWidth, girlHeight);
+            } else {
+                // Normal left-facing
+                ctx.drawImage(girlSprite, x, y, girlWidth, girlHeight);
+            }
+
+            ctx.restore();
         }
     }
 
@@ -1697,10 +1719,38 @@ class Village {
         // Show interaction hint for ALL houses
         const canEnter = Date.now() - gameState.lastHouseExitTime > 500;
         if (gameState.player && this.isNear(gameState.player, building, 150) && canEnter) {
-            ctx.fillStyle = '#FFF';
+            ctx.save();
             ctx.font = 'bold 12px Arial';
             ctx.textAlign = 'center';
-            ctx.fillText('Press E to Enter', screenX + building.width / 2, screenY - 10);
+
+            const text = 'Press E to Enter';
+            const textWidth = ctx.measureText(text).width;
+
+            // HUD-style frame
+            const frameX = screenX + building.width / 2 - textWidth / 2 - 10;
+            const frameY = screenY - 30;
+            const frameWidth = textWidth + 20;
+            const frameHeight = 24;
+            const cornerRadius = 6;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.fill();
+
+            // Border (gold)
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = '#FFF';
+            ctx.fillText(text, screenX + building.width / 2, screenY - 18);
+
+            ctx.restore();
         }
     }
 
@@ -1721,6 +1771,10 @@ const ctx = canvas.getContext('2d');
 // Load character images
 const girlImage = new Image();
 girlImage.src = 'graphics/girl.png';
+const girlWalking1 = new Image();
+girlWalking1.src = 'graphics/girl-walking1.png';
+const girlWalking2 = new Image();
+girlWalking2.src = 'graphics/girl-walking2.png';
 const catImage = new Image();
 catImage.src = 'graphics/cat.png';
 const catWalking1 = new Image();
@@ -1886,6 +1940,12 @@ function imageLoadHandler() {
 
 girlImage.onload = imageLoadHandler;
 girlImage.onerror = () => { console.error('Failed to load girl.png'); imageLoadHandler(); };
+
+girlWalking1.onload = imageLoadHandler;
+girlWalking1.onerror = () => { console.error('Failed to load girl-walking1.png'); imageLoadHandler(); };
+
+girlWalking2.onload = imageLoadHandler;
+girlWalking2.onerror = () => { console.error('Failed to load girl-walking2.png'); imageLoadHandler(); };
 
 catImage.onload = imageLoadHandler;
 catImage.onerror = () => { console.error('Failed to load cat.png'); imageLoadHandler(); };
@@ -2198,6 +2258,24 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
     gameState.keys[e.key] = false;
 });
+
+// Auto-hide cursor when idle
+let cursorTimeout;
+const CURSOR_HIDE_DELAY = 2000; // 2 seconds
+
+function showCursor() {
+    document.body.classList.remove('hide-cursor');
+    clearTimeout(cursorTimeout);
+    cursorTimeout = setTimeout(() => {
+        document.body.classList.add('hide-cursor');
+    }, CURSOR_HIDE_DELAY);
+}
+
+// Show cursor on any mouse movement
+document.addEventListener('mousemove', showCursor);
+
+// Initial cursor hide after delay
+showCursor();
 
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
@@ -4111,7 +4189,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.0', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.1', canvas.width - 5, canvas.height - 5);
     ctx.restore();
 
     requestAnimationFrame(gameLoop);
