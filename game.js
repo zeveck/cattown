@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.6
+// Clara's Cat Town - Version 0.2.7
 
 // Game Configuration
 const CONFIG = {
@@ -446,7 +446,7 @@ class Player {
                     // Randomly choose yawn or lick
                     this.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
                     this.idleAnimationStartTime = Date.now();
-                    this.idleTime = 0; // Reset idle timer to enforce gap between animations
+                    // Don't reset idleTime - let it keep accumulating toward sleep threshold
                 }
             }
         } else {
@@ -690,11 +690,7 @@ class Player {
     }
 
     drawCat(ctx, x, y) {
-        // Shadow
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.beginPath();
-        ctx.ellipse(x + 15, y + 25, 10, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
+        // No shadow for cat form (cat sprites have their own shadows or don't need them)
 
         // Choose the appropriate sprite based on movement and idle animations
         let catSprite = catImage; // Default idle
@@ -1933,7 +1929,7 @@ treeImages[2].src = 'graphics/trees/pinetree.png';
 
 // Load grass tile
 const grassTileImage = new Image();
-grassTileImage.src = 'graphics/grass_tile.png';
+grassTileImage.src = 'graphics/grass_tile.jpg';
 
 // Load firefly image
 const fireflyImage = new Image();
@@ -2130,7 +2126,7 @@ treeImages[2].onload = imageLoadHandler;
 treeImages[2].onerror = () => { console.error('Failed to load pinetree.png'); imageLoadHandler(); };
 
 grassTileImage.onload = imageLoadHandler;
-grassTileImage.onerror = () => { console.error('Failed to load grass_tile.png'); imageLoadHandler(); };
+grassTileImage.onerror = () => { console.error('Failed to load grass_tile.jpg'); imageLoadHandler(); };
 
 fireflyImage.onload = imageLoadHandler;
 fireflyImage.onerror = () => { console.error('Failed to load firefly.png'); imageLoadHandler(); };
@@ -2471,6 +2467,14 @@ canvas.addEventListener('click', (e) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
+
+    // Start music on first click
+    if (!gameState.musicStarted) {
+        gameState.musicStarted = true;
+        bgMusic.play().catch(err => {
+            gameState.musicStarted = false; // Allow retry on error
+        });
+    }
 
     if (gameState.isInsideHouse) {
         // Handle furniture shop clicks
@@ -4237,7 +4241,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.6', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.7', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

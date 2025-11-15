@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.6
+## Version 0.2.7
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,15 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.7
+- **Bug Fixes**:
+  - Fixed cat sleep animation not triggering - removed idleTime reset that prevented reaching 20s threshold
+  - Cat now properly falls asleep after 20 seconds of being idle
+- **Music Controls**: Click anywhere on canvas to start background music (in addition to moving)
+- **Graphics**: Switched from grass_tile.png to grass_tile.jpg for better performance
+- **Chest Sizing**: Increased chest size progression to 25% per tier for more dramatic scaling
+  - Tier 1: 1.25x, Tier 2: 1.5x, Tier 3: 1.75x, Tier 4: 2.0x, Tier 5: 2.25x
 
 ### v0.2.6
 - **Cat Sleeping Animation**: Cat now falls asleep after being idle for 20 seconds
