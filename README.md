@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.1
+## Version 0.2.2
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -75,7 +75,7 @@ cattown/
 
 ## Recent Updates
 
-### v0.2.1
+### v0.2.2
 - **Cat Fountain Feature**: Central fountain now serves as the village landmark
   - Houses arranged in a circle around the fountain
   - Compass points to fountain when off-screen, shows fountain image when visible

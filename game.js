@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.1
+// Clara's Cat Town - Version 0.2.2
 
 // Game Configuration
 const CONFIG = {
@@ -9,6 +9,7 @@ const CONFIG = {
     MAGIC_COOLDOWN: 500,
     COMPANION_SPEED: 2.5,
     DAY_LENGTH: 60000, // 60 seconds per day
+    CAT_SPEED_MULTIPLIER: 1.3, // Cats move 30% faster than human form
 };
 
 // Game State
@@ -384,22 +385,24 @@ class Player {
         }
 
         // Movement
+        // Calculate actual speed with cat multiplier
+        const actualSpeed = this.speed * (this.isCat ? CONFIG.CAT_SPEED_MULTIPLIER : 1);
         let moved = false;
         if (gameState.keys['ArrowUp']) {
-            this.y -= this.speed;
+            this.y -= actualSpeed;
             moved = true;
         }
         if (gameState.keys['ArrowDown']) {
-            this.y += this.speed;
+            this.y += actualSpeed;
             moved = true;
         }
         if (gameState.keys['ArrowLeft']) {
-            this.x -= this.speed;
+            this.x -= actualSpeed;
             this.facingRight = false;
             moved = true;
         }
         if (gameState.keys['ArrowRight']) {
-            this.x += this.speed;
+            this.x += actualSpeed;
             this.facingRight = true;
             moved = true;
         }
@@ -1099,7 +1102,7 @@ class Item {
 
         // Add faint glow at night
         if (gameState.isNight) {
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 30;
             ctx.shadowColor = heartColor;
         }
 
@@ -1276,82 +1279,89 @@ class Chest {
             }
         }
 
-        // Interaction hint
-        if (!this.opened && gameState.player && this.isNear(gameState.player, 80 * this.sizeMultiplier)) {
-            ctx.save();
-            ctx.textAlign = 'center';
-            ctx.font = 'bold 14px Arial';
+    }
 
-            if (this.fireflyCost > 0) {
-                // Large chest - show firefly requirement
-                const canOpen = this.canOpen();
-                const text1 = `${this.fireflyCost} Fireflies`;
-                const text2 = canOpen ? 'Press F to open' : 'Need more fireflies';
-
-                // Measure both texts to get max width
-                const text1Width = ctx.measureText(text1).width;
-                const text2Width = ctx.measureText(text2).width;
-                const maxWidth = Math.max(text1Width, text2Width);
-
-                // HUD-style frame
-                const frameX = screenX + this.width / 2 - maxWidth / 2 - 10;
-                const frameY = screenY - 50;
-                const frameWidth = maxWidth + 20;
-                const frameHeight = 40;
-                const cornerRadius = 8;
-
-                // Background
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-                ctx.beginPath();
-                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-                ctx.fill();
-
-                // Border (gold if can open, red if cannot)
-                ctx.strokeStyle = canOpen ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-                ctx.stroke();
-
-                // Firefly count text
-                ctx.fillStyle = canOpen ? '#00FF00' : '#FF0000';
-                ctx.fillText(text1, screenX + this.width / 2, screenY - 36);
-
-                // Action text
-                ctx.fillStyle = canOpen ? '#FFF' : '#AAA';
-                ctx.fillText(text2, screenX + this.width / 2, screenY - 24);
-            } else {
-                // Small chest - free to open with E
-                const text = 'Press E to Open';
-                const textWidth = ctx.measureText(text).width;
-
-                // HUD-style frame
-                const frameX = screenX + this.width / 2 - textWidth / 2 - 10;
-                const frameY = screenY - 30;
-                const frameWidth = textWidth + 20;
-                const frameHeight = 24;
-                const cornerRadius = 6;
-
-                // Background
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-                ctx.beginPath();
-                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-                ctx.fill();
-
-                // Border (gold)
-                ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-                ctx.stroke();
-
-                // Text
-                ctx.fillStyle = '#FFF';
-                ctx.fillText(text, screenX + this.width / 2, screenY - 18);
-            }
-
-            ctx.restore();
+    drawMessage(ctx) {
+        if (this.opened || !gameState.player || !this.isNear(gameState.player, 80 * this.sizeMultiplier)) {
+            return;
         }
+
+        const screenX = this.x - gameState.camera.x;
+        const screenY = this.y - gameState.camera.y;
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 14px Arial';
+
+        if (this.fireflyCost > 0) {
+            // Large chest - show firefly requirement
+            const canOpen = this.canOpen();
+            const text1 = `${this.fireflyCost} Fireflies`;
+            const text2 = canOpen ? 'Press F to open' : 'Need more fireflies';
+
+            // Measure both texts to get max width
+            const text1Width = ctx.measureText(text1).width;
+            const text2Width = ctx.measureText(text2).width;
+            const maxWidth = Math.max(text1Width, text2Width);
+
+            // HUD-style frame
+            const frameX = screenX + this.width / 2 - maxWidth / 2 - 10;
+            const frameY = screenY - 50;
+            const frameWidth = maxWidth + 20;
+            const frameHeight = 40;
+            const cornerRadius = 8;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.fill();
+
+            // Border (gold if can open, red if cannot)
+            ctx.strokeStyle = canOpen ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.stroke();
+
+            // Firefly count text
+            ctx.fillStyle = canOpen ? '#00FF00' : '#FF0000';
+            ctx.fillText(text1, screenX + this.width / 2, screenY - 36);
+
+            // Action text
+            ctx.fillStyle = canOpen ? '#FFF' : '#AAA';
+            ctx.fillText(text2, screenX + this.width / 2, screenY - 24);
+        } else {
+            // Small chest - free to open with E
+            const text = 'Press E to Open';
+            const textWidth = ctx.measureText(text).width;
+
+            // HUD-style frame
+            const frameX = screenX + this.width / 2 - textWidth / 2 - 10;
+            const frameY = screenY - 30;
+            const frameWidth = textWidth + 20;
+            const frameHeight = 24;
+            const cornerRadius = 6;
+
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.fill();
+
+            // Border (gold)
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = '#FFF';
+            ctx.fillText(text, screenX + this.width / 2, screenY - 18);
+        }
+
+        ctx.restore();
     }
 }
 
@@ -3286,7 +3296,7 @@ function handleInteractions() {
 
     // Collect all closed FREE chests in range (E key only opens tier 0)
     for (let chest of gameState.chests) {
-        if (!chest.opened && chest.fireflyCost === 0 && chest.isNear(player, 60)) {
+        if (!chest.opened && chest.fireflyCost === 0 && chest.isNear(player, 80 * chest.sizeMultiplier)) {
             const dx = chest.x - player.x;
             const dy = chest.y - player.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -3780,10 +3790,9 @@ function gameLoop() {
             gameState.village.drawGround(ctx);
         }
 
-        // Update and draw items
+        // Update items (draw later, after night overlay)
         for (let item of gameState.items) {
             item.update();
-            item.draw(ctx);
         }
 
         // Update chests (draw later, after night overlay)
@@ -3966,6 +3975,11 @@ function gameLoop() {
             chest.draw(ctx);
         }
 
+        // Draw items after night overlay to stay bright
+        for (let item of gameState.items) {
+            item.draw(ctx);
+        }
+
         // Draw trees above buildings and chests
         if (gameState.village) {
             for (let tree of gameState.village.trees) {
@@ -4052,29 +4066,6 @@ function gameLoop() {
         ctx.beginPath();
         ctx.roundRect(hudX, hudY, hudWidth, hudHeight, cornerRadius);
         ctx.fill();
-
-        // Add pulsing glow when speed boost is active
-        const hasSpeedBoost = gameState.player && gameState.player.speedBoostEndTime > Date.now();
-        if (hasSpeedBoost) {
-            const pulseSpeed = 0.008; // Speed of pulse
-            const pulseIntensity = Math.sin(Date.now() * pulseSpeed) * 0.5 + 0.5; // 0 to 1
-            const glowIntensity = 30 + pulseIntensity * 60; // Pulse between 30 and 90
-            const heartColor = gameState.player.speedBoostColor || '#FFD700';
-
-            // Draw multiple glow layers for stronger effect
-            ctx.save();
-            for (let i = 0; i < 3; i++) {
-                ctx.shadowBlur = glowIntensity;
-                ctx.shadowColor = heartColor;
-                ctx.strokeStyle = heartColor;
-                ctx.lineWidth = 5;
-                ctx.globalAlpha = 0.3;
-                ctx.beginPath();
-                ctx.roundRect(hudX - 2, hudY - 2, hudWidth + 4, hudHeight + 4, cornerRadius + 2);
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
 
         // Rainbow gradient border
         const rainbowGradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
@@ -4189,8 +4180,15 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.1', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.2', canvas.width - 5, canvas.height - 5);
     ctx.restore();
+    // Draw chest messages on top of everything
+    if (!gameState.isInsideHouse) {
+        for (let chest of gameState.chests) {
+            chest.drawMessage(ctx);
+        }
+    }
+
 
     requestAnimationFrame(gameLoop);
 }
