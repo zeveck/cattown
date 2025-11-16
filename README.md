@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.10
+## Version 0.2.11
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,12 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.11
+- **File Organization**: Reorganized cat graphics into dedicated subfolder
+  - All cat-related graphics moved to `graphics/cat/` subdirectory
+  - Improved project file structure and organization
+  - Updated all file references throughout the codebase
 
 ### v0.2.10
 - **Save & Load System**: Comprehensive save/load functionality in the help menu

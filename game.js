@@ -377,7 +377,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.2.10',
+            version: '0.2.11',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -2123,24 +2123,22 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 // Load character images
-const girlImage = new Image();
-girlImage.src = 'graphics/girl.png';
 const girlWalking1 = new Image();
 girlWalking1.src = 'graphics/girl-walking1.png';
 const girlWalking2 = new Image();
 girlWalking2.src = 'graphics/girl-walking2.png';
 const catImage = new Image();
-catImage.src = 'graphics/cat.png';
+catImage.src = 'graphics/cat/cat.png';
 const catWalking1 = new Image();
-catWalking1.src = 'graphics/cat-walking1.png';
+catWalking1.src = 'graphics/cat/cat-walking1.png';
 const catWalking2 = new Image();
-catWalking2.src = 'graphics/cat-walking2.png';
+catWalking2.src = 'graphics/cat/cat-walking2.png';
 const catYawning = new Image();
-catYawning.src = 'graphics/cat-yawning.png';
+catYawning.src = 'graphics/cat/cat-yawning.png';
 const catLickingPaw = new Image();
-catLickingPaw.src = 'graphics/cat-licking-paw.png';
+catLickingPaw.src = 'graphics/cat/cat-licking-paw.png';
 const catSleeping = new Image();
-catSleeping.src = 'graphics/cat-sleeping.png';
+catSleeping.src = 'graphics/cat/cat-sleeping.png';
 
 // Load house images - 4 types
 const houseImages = {
@@ -2235,7 +2233,7 @@ grassTileImage.src = 'graphics/grass_tile.jpg';
 
 // Load floorboards
 const floorboardsImage = new Image();
-floorboardsImage.src = 'graphics/floorboards.png';
+floorboardsImage.src = 'graphics/floorboards.jpg';
 
 // Load firefly image
 const fireflyImage = new Image();
@@ -2284,14 +2282,14 @@ fullJarImage.src = 'graphics/fireflies/full-jar.png';
 
 // Load cat fountain image
 const catFountainImage = new Image();
-catFountainImage.src = 'graphics/cat-fountain.png';
+catFountainImage.src = 'graphics/cat/cat-fountain.png';
 
 // Load title image
 const titleImage = new Image();
 titleImage.src = 'graphics/title.png';
 
 let imagesLoaded = 0;
-const totalImages = 46; // girl, 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
+const totalImages = 45; // 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -2305,9 +2303,6 @@ function imageLoadHandler() {
     imagesLoaded++;
     checkImagesLoaded();
 }
-
-girlImage.onload = imageLoadHandler;
-girlImage.onerror = () => { console.error('Failed to load girl.png'); imageLoadHandler(); };
 
 girlWalking1.onload = imageLoadHandler;
 girlWalking1.onerror = () => { console.error('Failed to load girl-walking1.png'); imageLoadHandler(); };
@@ -2435,7 +2430,7 @@ grassTileImage.onload = imageLoadHandler;
 grassTileImage.onerror = () => { console.error('Failed to load grass_tile.jpg'); imageLoadHandler(); };
 
 floorboardsImage.onload = imageLoadHandler;
-floorboardsImage.onerror = () => { console.error('Failed to load floorboards.png'); imageLoadHandler(); };
+floorboardsImage.onerror = () => { console.error('Failed to load floorboards.jpg'); imageLoadHandler(); };
 
 fireflyImage.onload = imageLoadHandler;
 fireflyImage.onerror = () => { console.error('Failed to load firefly.png'); imageLoadHandler(); };
@@ -3351,8 +3346,14 @@ function drawHouseInterior(ctx) {
                 ctx.restore();
             }
         } else {
-            if (girlImage.complete) {
-                ctx.drawImage(girlImage, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
+            // Use walking sprites for girl (girlWalking1 for idle, alternate when moving)
+            let girlSprite = girlWalking1; // Default idle
+            if (gameState.player.isMoving) {
+                girlSprite = gameState.player.walkingFrame === 0 ? girlWalking1 : girlWalking2;
+            }
+
+            if (girlSprite.complete) {
+                ctx.drawImage(girlSprite, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
             }
         }
     }
@@ -4730,7 +4731,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.10', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.11', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
