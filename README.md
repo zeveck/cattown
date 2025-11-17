@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.13
+## Version 0.2.14
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,15 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.14
+- **Controls Panel Bug Fix**: Fixed issue where X button wouldn't close the auto-shown help panel
+  - Resolved race condition with gameLoop's auto-show logic
+  - Panel now stays closed when dismissed and doesn't re-appear
+  - Fixed for all close methods: X button, ESC key, and ? key toggle
+- **Code Refactoring**: Renamed `hasPlayerMoved` to `hasUserInteracted` for better semantic clarity
+  - Variable now accurately represents any user interaction (movement or UI dismissal)
+  - Updated all comments to reflect the new meaning
 
 ### v0.2.13
 - **SEO & Social Media Enhancement**: Added comprehensive meta tags for better social sharing

@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.13
+// Clara's Cat Town - Version 0.2.14
 
 // Game Configuration
 const CONFIG = {
@@ -70,7 +70,7 @@ const gameState = {
     draggedFurnitureType: null, // which furniture item's slider
     lastActivityTime: Date.now(),
     controlsPanelShown: false,
-    hasPlayerMoved: false, // Track if player has moved since game start
+    hasUserInteracted: false, // Track if user has interacted (moved or dismissed help panel)
     furnitureHues: {
         bed: 0,
         table: 0,
@@ -315,20 +315,30 @@ if (startGameButton) {
 const helpButton = document.getElementById('helpButton');
 const controlsPanel = document.getElementById('controlsPanel');
 if (helpButton && controlsPanel) {
-    helpButton.addEventListener('click', () => {
+    helpButton.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent click from bubbling to canvas
+        e.preventDefault(); // Prevent any default behavior
         const isVisible = controlsPanel.style.display !== 'none';
         controlsPanel.style.display = isVisible ? 'none' : 'block';
         gameState.controlsPanelShown = !isVisible;
         gameState.lastActivityTime = Date.now(); // Reset idle timer
+        // Mark as interacted to prevent auto-show from re-triggering
+        if (!isVisible) {
+            gameState.hasUserInteracted = true;
+        }
     });
 }
 
 // Close button for controls panel
 const closeControlsButton = document.getElementById('closeControlsButton');
 if (closeControlsButton && controlsPanel) {
-    closeControlsButton.addEventListener('click', () => {
+    closeControlsButton.addEventListener('click', (e) => {
+        e.stopPropagation(); // Prevent click from bubbling to canvas
+        e.preventDefault(); // Prevent any default behavior
         controlsPanel.style.display = 'none';
         gameState.controlsPanelShown = false;
+        // Mark as interacted to prevent auto-show from re-triggering
+        gameState.hasUserInteracted = true;
     });
 }
 
@@ -391,7 +401,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.2.12',
+            version: '0.2.14',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -759,7 +769,7 @@ class Player {
 
         // Track that player has moved (for idle menu logic)
         if (moved) {
-            gameState.hasPlayerMoved = true;
+            gameState.hasUserInteracted = true;
         }
 
         // Start music on first movement
@@ -2766,6 +2776,8 @@ document.addEventListener('keydown', (e) => {
         if (controlsPanel.style.display === 'block') {
             controlsPanel.style.display = 'none';
             gameState.controlsPanelShown = false;
+            // Mark as interacted to prevent auto-show from re-triggering
+            gameState.hasUserInteracted = true;
         }
         e.preventDefault();
         return;
@@ -2778,6 +2790,10 @@ document.addEventListener('keydown', (e) => {
             const isVisible = controlsPanel.style.display === 'block';
             controlsPanel.style.display = isVisible ? 'none' : 'block';
             gameState.controlsPanelShown = !isVisible;
+            // Mark as interacted to prevent auto-show from re-triggering when closing
+            if (isVisible) {
+                gameState.hasUserInteracted = true;
+            }
         }
         e.preventDefault();
         return;
@@ -4884,10 +4900,10 @@ function gameLoop() {
     const deltaTime = now - lastTime;
     lastTime = now;
 
-    // Auto-show controls panel after 10 seconds of inactivity (only at game start before player moves)
+    // Auto-show controls panel after 10 seconds of inactivity (only before user interaction)
     const idleTime = now - gameState.lastActivityTime;
     const controlsPanel = document.getElementById('controlsPanel');
-    if (idleTime > 10000 && !gameState.controlsPanelShown && !gameState.hasPlayerMoved && controlsPanel) {
+    if (idleTime > 10000 && !gameState.controlsPanelShown && !gameState.hasUserInteracted && controlsPanel) {
         controlsPanel.style.display = 'block';
         gameState.controlsPanelShown = true;
     }
@@ -5315,7 +5331,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.13', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.14', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

@@ -268,6 +268,7 @@ body.hide-cursor * {
     min-width: 200px;
     border: 2px solid rgba(255, 255, 255, 0.3);
     pointer-events: auto;
+    z-index: 1000;
 }
 
 .controls-title {
@@ -422,6 +423,8 @@ body.hide-cursor * {
     transition: all 0.2s ease;
     padding: 4px;
     line-height: 1;
+    pointer-events: auto;
+    z-index: 1001;
 }
 
 .close-controls-button:hover {
