@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.12
+## Version 0.2.13
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,15 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.13
+- **SEO & Social Media Enhancement**: Added comprehensive meta tags for better social sharing
+  - Open Graph tags for Facebook, LinkedIn, and other platforms
+  - Twitter Card tags for rich previews on X/Twitter
+  - Enhanced page title and description for search engines
+  - Proper image tags using screenshot for social previews
+  - Apple mobile web app tags for iOS devices
+  - Theme color and canonical URL for better SEO
 
 ### v0.2.12
 - **Chest Spawn System Improvements**:

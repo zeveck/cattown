@@ -185,9 +185,10 @@ All sprites in `/graphics` directory:
 3. Add entry to `gameState.furnitureShop` array (line 89)
 
 ## Version History
-Current version: **v0.2.12**
+Current version: **v0.2.13**
 
 Major version updates documented in README.md. Recent focus:
+- v0.2.13: SEO & social media meta tags for better sharing on social platforms
 - v0.2.12: Chest spawn improvements, companion spawn animations, minimap enhancements
 - v0.2.10: Save/load system implementation
 - v0.2.2: Firefly collection, enhanced chest system, speed boosts
