@@ -100,7 +100,21 @@ const gameState = {
         visible: false,
         fadeStartTime: 0,
         duration: 3000 // 3 seconds
-    }
+    },
+    showMinimap: false,
+    minimapLayers: {
+        trees: true,
+        buildings: true,
+        fountain: true,
+        chestsPurple: true,
+        chestsGreen: true,
+        chestsBlue: true,
+        chestsRed: true,
+        chestsMagenta: true,
+        companions: true,
+        player: true
+    },
+    minimapLegendBounds: [] // Will store clickable areas for legend items
 };
 
 // Character Creation
@@ -497,7 +511,7 @@ function loadGame(saveData) {
         gameState.xp = saveData.xp;
         gameState.xpToNextLevel = saveData.xpToNextLevel;
         gameState.catCash = saveData.catCash;
-        gameState.fireflyCount = saveData.fireflyCount;
+        gameState.fireflyCount = Math.min(999, saveData.fireflyCount);
 
         // Restore time and environment
         gameState.gameTime = saveData.gameTime;
@@ -1151,7 +1165,7 @@ class Enemy {
 }
 
 class Companion {
-    constructor(x, y, type, sizeMultiplier = 1.0) {
+    constructor(x, y, type, sizeMultiplier = 1.0, spawnVelocityX = 0, spawnVelocityY = 0, spawnDuration = 1000) {
         this.x = x;
         this.y = y;
         this.sizeMultiplier = sizeMultiplier;
@@ -1162,10 +1176,42 @@ class Companion {
         this.targetX = x;
         this.targetY = y;
         this.bobOffset = Math.random() * Math.PI * 2;
+
+        // Spawn animation properties
+        this.velocityX = spawnVelocityX;
+        this.velocityY = spawnVelocityY;
+        this.isSpawning = (spawnVelocityX !== 0 || spawnVelocityY !== 0);
+        this.spawnTime = this.isSpawning ? Date.now() : 0;
+        this.spawnDuration = spawnDuration; // How long the spawn animation lasts
+        this.gravity = 0.3; // Gravity for spawn animation
+        this.hasJoinedLine = !this.isSpawning; // False for spawning companions, true for placed/loaded ones
     }
 
     update() {
         if (!gameState.player) return;
+
+        // Handle spawn animation
+        if (this.isSpawning) {
+            const elapsed = Date.now() - this.spawnTime;
+
+            if (elapsed < this.spawnDuration) {
+                // Apply physics: velocity and gravity
+                this.x += this.velocityX;
+                this.y += this.velocityY;
+                this.velocityY += this.gravity; // Gravity pulls down
+
+                // Add some damping/friction
+                this.velocityX *= 0.98;
+                this.velocityY *= 0.98;
+            } else {
+                // Spawn animation complete, transition to normal behavior
+                this.isSpawning = false;
+                this.velocityX = 0;
+                this.velocityY = 0;
+            }
+            this.bobOffset += 0.1;
+            return; // Skip normal following behavior during spawn
+        }
 
         // If player is sleeping, companions form a ring around them
         if (gameState.player.isCat && gameState.player.idleAnimationType === 'sleep') {
@@ -1186,7 +1232,20 @@ class Companion {
             const dy = gameState.player.y - this.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
 
-            if (distance > targetDist) {
+            // If companion hasn't joined the line yet, always move toward player
+            // This prevents newly spawned companions from sitting still when line is long
+            if (!this.hasJoinedLine) {
+                if (distance <= targetDist + 50) {
+                    // Close enough to the line, mark as joined
+                    this.hasJoinedLine = true;
+                } else {
+                    // Keep moving toward player at double speed to catch up quickly
+                    const angle = Math.atan2(dy, dx);
+                    this.x += Math.cos(angle) * this.speed * 1.5;
+                    this.y += Math.sin(angle) * this.speed * 1.5;
+                }
+            } else if (distance > targetDist) {
+                // Normal following behavior once in line
                 const angle = Math.atan2(dy, dx);
                 this.x += Math.cos(angle) * this.speed;
                 this.y += Math.sin(angle) * this.speed;
@@ -1351,15 +1410,18 @@ class Projectile {
 }
 
 class Particle {
-    constructor(x, y, angle) {
+    constructor(x, y, angle, color = null, speed = null) {
         this.x = x;
         this.y = y;
-        this.vx = Math.cos(angle) * (2 + Math.random() * 3);
-        this.vy = Math.sin(angle) * (2 + Math.random() * 3);
+        // Use custom speed or default to 2-5 range
+        const particleSpeed = speed !== null ? speed : (2 + Math.random() * 3);
+        this.vx = Math.cos(angle) * particleSpeed;
+        this.vy = Math.sin(angle) * particleSpeed;
         this.life = 1;
         this.decay = 0.02;
         this.size = 3 + Math.random() * 3;
-        this.color = `hsl(${Math.random() * 60 + 30}, 100%, 50%)`;
+        // Use provided color or default to yellow-orange
+        this.color = color || `hsl(${Math.random() * 60 + 30}, 100%, 50%)`;
     }
 
     update() {
@@ -1480,14 +1542,14 @@ class Chest {
         this.companionTypes = ['kitten1', 'kitten2', 'kitten3', 'frog', 'squirrel', 'puppy', 'bunny'];
 
         // Calculate tier based on distance from center (every 2000 units = new tier)
-        this.tier = Math.min(Math.floor(distanceFromCenter / 2000), 5); // Max tier 5
+        this.tier = Math.min(Math.floor(distanceFromCenter / 2000), 4); // Max tier 4
 
-        // Assign color based on tier (tier 0 is purple, tier 1+ use other colors - never purple)
-        const tierColors = ['purple', 'green', 'aqua', 'blue', 'red', 'red'];
+        // Assign color based on tier
+        const tierColors = ['purple', 'green', 'blue', 'red', 'magenta'];
         this.color = tierColors[this.tier];
 
         // Glow colors for each tier (used at night)
-        const glowColors = ['#9370DB', '#FFD700', '#00FF00', '#00FFFF', '#0000FF', '#FF00FF'];
+        const glowColors = ['#9370DB', '#FFD700', '#0000FF', '#FF0000', '#9370DB'];
         this.glowColor = glowColors[this.tier];
 
         // Size: basic chests are always size 1.0, firefly chests are always larger
@@ -1497,11 +1559,24 @@ class Chest {
         if (this.tier === 0) {
             // Basic chests - always base size
             this.sizeMultiplier = 1.0;
+        } else if (this.tier === 1) {
+            // Green chests - 1.5x with ±10% variation
+            const baseSize = 1.5;
+            const variation = (Math.random() - 0.5) * 0.2 * baseSize;
+            this.sizeMultiplier = baseSize + variation;
+        } else if (this.tier === 2) {
+            // Blue chests - 2.0x with ±10% variation
+            const baseSize = 2.0;
+            const variation = (Math.random() - 0.5) * 0.2 * baseSize;
+            this.sizeMultiplier = baseSize + variation;
+        } else if (this.tier === 3) {
+            // Red chests - 2.5x with ±10% variation
+            const baseSize = 2.5;
+            const variation = (Math.random() - 0.5) * 0.2 * baseSize;
+            this.sizeMultiplier = baseSize + variation;
         } else {
-            // Firefly chests - 25% larger for each tier, with slight random variation
-            // Tier 1: 1.25, Tier 2: 1.5, Tier 3: 1.75, Tier 4: 2.0, Tier 5: 2.25
-            const baseSize = 1.0 + (this.tier * 0.25);
-            // Add ±10% random variation
+            // Magenta chests (tier 4) - 3.0x with ±10% variation
+            const baseSize = 3.0;
             const variation = (Math.random() - 0.5) * 0.2 * baseSize;
             this.sizeMultiplier = baseSize + variation;
         }
@@ -1509,13 +1584,27 @@ class Chest {
         this.width = baseWidth * this.sizeMultiplier;
         this.height = baseHeight * this.sizeMultiplier;
 
-        // Firefly cost and companion count based on tier
+        // Firefly cost, companion count, and companion size based on tier
         if (this.tier === 0) {
             this.fireflyCost = 0; // Free
+            this.companionCount = 1; // 1 companion
+            this.companionSizeMultiplier = 1.0; // 1.0x sized companions
+        } else if (this.tier === 1) {
+            this.fireflyCost = 5; // Green chests
             this.companionCount = 1;
+            this.companionSizeMultiplier = 1.25; // 1.25x sized companions
+        } else if (this.tier === 2) {
+            this.fireflyCost = 10; // Blue chests
+            this.companionCount = 1;
+            this.companionSizeMultiplier = 1.5; // 1.5x sized companions
+        } else if (this.tier === 3) {
+            this.fireflyCost = 20; // Red chests
+            this.companionCount = Math.floor(Math.random() * 4) + 2; // 2-5 companions
+            this.companionSizeMultiplier = 1.5; // 1.5x sized companions
         } else {
-            this.fireflyCost = this.tier * 5; // 5, 10, 15, 20, 25
-            this.companionCount = 1; // All chests have 1 companion (large chests have bigger companions)
+            this.fireflyCost = 50; // Magenta chests (tier 4)
+            this.companionCount = Math.floor(Math.random() * 5) + 3; // 3-7 companions
+            this.companionSizeMultiplier = 2.0; // 2x sized companions
         }
     }
 
@@ -1538,13 +1627,64 @@ class Chest {
         // Deduct fireflies
         gameState.fireflyCount -= this.fireflyCost;
 
-        // Spawn multiple companions based on chest tier (sized to match chest)
+        // Spawn multiple companions based on chest tier
+        // Calculate chest center for spawning
+        const chestCenterX = this.x + this.width / 2;
+        const chestCenterY = this.y + this.height / 2;
+
         for (let i = 0; i < this.companionCount; i++) {
             const type = this.companionTypes[Math.floor(Math.random() * this.companionTypes.length)];
-            // Spread companions out slightly (scale with chest size)
-            const offsetX = (Math.random() - 0.5) * 80 * this.sizeMultiplier;
-            const offsetY = (Math.random() - 0.5) * 80 * this.sizeMultiplier;
-            gameState.companions.push(new Companion(this.x + offsetX, this.y + offsetY, type, this.sizeMultiplier));
+            // Tighter spawn offset (constant 40px, not scaled)
+            const offsetX = (Math.random() - 0.5) * 40;
+            const offsetY = (Math.random() - 0.5) * 40;
+
+            // All tiers get upward cone animation, narrower cone: -30° to 30° from straight up
+            const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI / 3);
+            let speed;
+
+            // Magenta chests: dramatic fountain arc
+            if (this.tier === 4) {
+                speed = 15 + Math.random() * 10; // 15-25 units/frame - HIGH arc
+            }
+            // Red chests: high arc
+            else if (this.tier === 3) {
+                speed = 10 + Math.random() * 5; // 10-15 units/frame
+            }
+            // Blue chests: moderate arc
+            else if (this.tier === 2) {
+                speed = 7 + Math.random() * 3; // 7-10 units/frame
+            }
+            // Green chests: higher arc (increased from 5-8)
+            else if (this.tier === 1) {
+                speed = 8 + Math.random() * 4; // 8-12 units/frame
+            }
+            // Purple chests: subtle arc
+            else {
+                speed = 6 + Math.random() * 4; // 6-10 units/frame
+            }
+
+            const velocityX = Math.cos(angle) * speed;
+            const velocityY = Math.sin(angle) * speed; // Negative Y = upward
+
+            // Different spawn durations for each tier
+            let spawnDuration;
+            if (this.tier === 4) {
+                spawnDuration = 1800; // Magenta: 1.8 seconds (dramatic arc)
+            } else if (this.tier === 3) {
+                spawnDuration = 1400; // Red: 1.4 seconds (snappy arc)
+            } else {
+                spawnDuration = 1000; // Purple/Green/Blue: 1 second
+            }
+
+            gameState.companions.push(new Companion(
+                chestCenterX + offsetX,
+                chestCenterY + offsetY,
+                type,
+                this.companionSizeMultiplier,
+                velocityX,
+                velocityY,
+                spawnDuration
+            ));
         }
 
         // Award Cat Cash for freeing friends (more for bigger chests)
@@ -1558,12 +1698,124 @@ class Chest {
 
         // More particles for bigger chests
         const particleCount = 20 * this.sizeMultiplier;
-        for (let i = 0; i < particleCount; i++) {
-            gameState.particles.push(new Particle(
-                this.x + this.width / 2,
-                this.y + this.height / 2,
-                Math.random() * Math.PI * 2
-            ));
+
+        // MAGENTA CHESTS: DRAMATIC FOUNTAIN PARTICLE EFFECTS
+        if (this.tier === 4) {
+            const centerX = this.x + this.width / 2;
+            const centerY = this.y + this.height / 2;
+
+            // Define colorful particle palette for magenta chests
+            const colorPalette = [
+                'hsl(270, 100%, 60%)',  // Purple
+                'hsl(290, 100%, 70%)',  // Bright purple
+                'hsl(310, 100%, 65%)',  // Pink
+                'hsl(330, 100%, 75%)',  // Light pink
+                'hsl(0, 0%, 95%)',      // White
+                'hsl(50, 100%, 60%)'    // Gold
+            ];
+
+            // WAVE 1: Fountain burst with arcing particles (60 particles)
+            for (let i = 0; i < 60; i++) {
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI / 3); // Narrow upward cone
+                const speed = 6 + Math.random() * 6; // 6-12 units/frame - Moderate speed for visible arc
+                const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                gameState.particles.push(new Particle(centerX, centerY, angle, color, speed));
+            }
+
+            // WAVE 1: Vertical laser fountain (30 straight-up particles)
+            for (let i = 0; i < 30; i++) {
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.2; // Almost straight up
+                const speed = 8 + Math.random() * 7; // 8-15 units/frame - High but not too fast
+                const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                gameState.particles.push(new Particle(
+                    centerX + (Math.random() - 0.5) * this.width * 0.5,
+                    centerY,
+                    angle,
+                    color,
+                    speed
+                ));
+            }
+
+            // WAVE 2: Second fountain wave after 150ms (40 particles)
+            setTimeout(() => {
+                if (gameState.particles) {
+                    for (let i = 0; i < 40; i++) {
+                        const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI / 3);
+                        const speed = 5 + Math.random() * 5; // 5-10 units/frame - Gentle arc
+                        const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                        gameState.particles.push(new Particle(centerX, centerY, angle, color, speed));
+                    }
+                }
+            }, 150);
+
+            // WAVE 3: Third fountain wave after 300ms (30 particles)
+            setTimeout(() => {
+                if (gameState.particles) {
+                    for (let i = 0; i < 30; i++) {
+                        const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI / 3);
+                        const speed = 4 + Math.random() * 4; // 4-8 units/frame - Soft arc
+                        const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                        gameState.particles.push(new Particle(centerX, centerY, angle, color, speed));
+                    }
+                }
+            }, 300);
+
+            // WAVE 4: Final rainbow sparkle after 500ms (20 particles all directions)
+            setTimeout(() => {
+                if (gameState.particles) {
+                    for (let i = 0; i < 20; i++) {
+                        const angle = Math.random() * Math.PI * 2; // All directions
+                        const speed = 3 + Math.random() * 3; // 3-6 units/frame - Gentle spread
+                        const color = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                        gameState.particles.push(new Particle(centerX, centerY, angle, color, speed));
+                    }
+                }
+            }, 500);
+        }
+        // RED CHESTS: Enhanced burst effect
+        else if (this.tier === 3) {
+            const centerX = this.x + this.width / 2;
+            const centerY = this.y + this.height / 2;
+
+            // Extra burst particles shooting upward and outward (30 particles)
+            for (let i = 0; i < 30; i++) {
+                const angle = (Math.random() * Math.PI) - Math.PI / 2; // Upward bias
+                gameState.particles.push(new Particle(centerX, centerY, angle));
+            }
+
+            // Add sparkle effect - vertical "laser" particles (15 particles)
+            for (let i = 0; i < 15; i++) {
+                const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.5; // Mostly straight up
+                gameState.particles.push(new Particle(
+                    centerX + (Math.random() - 0.5) * this.width,
+                    centerY,
+                    angle
+                ));
+            }
+        }
+        // PURPLE CHESTS: Simple omnidirectional burst for single companion
+        else if (this.tier === 0) {
+            const centerX = this.x + this.width / 2;
+            const centerY = this.y + this.height / 2;
+
+            // Simple burst in all directions (25 particles)
+            for (let i = 0; i < 25; i++) {
+                const angle = Math.random() * Math.PI * 2; // All directions (omnidirectional)
+                gameState.particles.push(new Particle(centerX, centerY, angle));
+            }
+        }
+        // GREEN AND BLUE CHESTS: Normal particle burst
+        else {
+            const centerX = this.x + this.width / 2;
+            const centerY = this.y + this.height / 2;
+
+            for (let i = 0; i < particleCount; i++) {
+                gameState.particles.push(new Particle(
+                    centerX,
+                    centerY,
+                    Math.random() * Math.PI * 2
+                ));
+            }
         }
 
         return true;
@@ -2201,21 +2453,21 @@ furnitureImages.lamp.src = 'graphics/house-items/lamp.png';
 const chestImages = {
     purple: { full: new Image(), empty: new Image() },
     green: { full: new Image(), empty: new Image() },
-    aqua: { full: new Image(), empty: new Image() },
     blue: { full: new Image(), empty: new Image() },
-    red: { full: new Image(), empty: new Image() }
+    red: { full: new Image(), empty: new Image() },
+    magenta: { full: new Image(), empty: new Image() }
 };
 
 chestImages.purple.full.src = 'graphics/chests/purple-chest-full.png';
 chestImages.purple.empty.src = 'graphics/chests/purple-chest-empty.png';
 chestImages.green.full.src = 'graphics/chests/green-chest.png';
 chestImages.green.empty.src = 'graphics/chests/green-chest-open.png';
-chestImages.aqua.full.src = 'graphics/chests/aqua-chest.png';
-chestImages.aqua.empty.src = 'graphics/chests/aqua-chest-open.png';
 chestImages.blue.full.src = 'graphics/chests/blue-chest.png';
 chestImages.blue.empty.src = 'graphics/chests/blue-chest-open.png';
 chestImages.red.full.src = 'graphics/chests/red-chest.png';
 chestImages.red.empty.src = 'graphics/chests/red-chest-open.png';
+chestImages.magenta.full.src = 'graphics/chests/magenta-chest.png';
+chestImages.magenta.empty.src = 'graphics/chests/magenta-chest-open.png';
 
 // Load tree images
 const treeImages = [
@@ -2289,7 +2541,7 @@ const titleImage = new Image();
 titleImage.src = 'graphics/title.png';
 
 let imagesLoaded = 0;
-const totalImages = 45; // 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (5 colors × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
+const totalImages = 45; // 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (purple/green/blue/red/magenta × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
@@ -2402,11 +2654,6 @@ chestImages.green.full.onerror = () => { console.error('Failed to load green-che
 chestImages.green.empty.onload = imageLoadHandler;
 chestImages.green.empty.onerror = () => { console.error('Failed to load green-chest-open.png'); imageLoadHandler(); };
 
-chestImages.aqua.full.onload = imageLoadHandler;
-chestImages.aqua.full.onerror = () => { console.error('Failed to load aqua-chest.png'); imageLoadHandler(); };
-chestImages.aqua.empty.onload = imageLoadHandler;
-chestImages.aqua.empty.onerror = () => { console.error('Failed to load aqua-chest-open.png'); imageLoadHandler(); };
-
 chestImages.blue.full.onload = imageLoadHandler;
 chestImages.blue.full.onerror = () => { console.error('Failed to load blue-chest.png'); imageLoadHandler(); };
 chestImages.blue.empty.onload = imageLoadHandler;
@@ -2416,6 +2663,11 @@ chestImages.red.full.onload = imageLoadHandler;
 chestImages.red.full.onerror = () => { console.error('Failed to load red-chest.png'); imageLoadHandler(); };
 chestImages.red.empty.onload = imageLoadHandler;
 chestImages.red.empty.onerror = () => { console.error('Failed to load red-chest-open.png'); imageLoadHandler(); };
+
+chestImages.magenta.full.onload = imageLoadHandler;
+chestImages.magenta.full.onerror = () => { console.error('Failed to load magenta-chest.png'); imageLoadHandler(); };
+chestImages.magenta.empty.onload = imageLoadHandler;
+chestImages.magenta.empty.onerror = () => { console.error('Failed to load magenta-chest-open.png'); imageLoadHandler(); };
 
 treeImages[0].onload = imageLoadHandler;
 treeImages[0].onerror = () => { console.error('Failed to load tree1.png'); imageLoadHandler(); };
@@ -2550,6 +2802,19 @@ document.addEventListener('keydown', (e) => {
         if (gameState.player && !gameState.isInsideHouse) {
             gameState.player.transform();
         }
+    }
+
+    // Toggle minimap with M
+    if (e.key === 'm' || e.key === 'M') {
+        gameState.showMinimap = !gameState.showMinimap;
+        e.preventDefault();
+    }
+
+    // DEBUG: Shift+Plus to add 10 fireflies
+    if (e.shiftKey && (e.key === '+' || e.key === '=')) {
+        gameState.fireflyCount = Math.min(999, gameState.fireflyCount + 10);
+        updateUI();
+        e.preventDefault();
     }
 
     // Teleport to fountain with Home key
@@ -2757,6 +3022,18 @@ canvas.addEventListener('click', (e) => {
         });
     }
 
+    // Check for minimap legend clicks
+    if (gameState.showMinimap && gameState.minimapLegendBounds.length > 0) {
+        for (let bound of gameState.minimapLegendBounds) {
+            if (clickX >= bound.x && clickX <= bound.x + bound.width &&
+                clickY >= bound.y && clickY <= bound.y + bound.height) {
+                // Toggle this layer
+                gameState.minimapLayers[bound.toggleKey] = !gameState.minimapLayers[bound.toggleKey];
+                return; // Consume the click
+            }
+        }
+    }
+
     if (gameState.isInsideHouse) {
         // Handle furniture shop clicks
         if (!handleFurnitureShopClick(clickX, clickY)) {
@@ -2833,7 +3110,7 @@ function startGame() {
     gameState.player.isCat = true;
 
     // Spawn items
-    spawnItems(100);
+    spawnItems(200); // Increased from 100 for more hearts in forest
 
     // Spawn chests (LOTS in the huge forest)
     spawnChests(500);
@@ -2931,12 +3208,20 @@ function spawnChests(count) {
                 }
             }
 
-            // Check distance from other chests
+            // Check distance from other chests (tier-aware minimum distance)
             if (validPosition) {
+                // Calculate tier of this new chest position
+                const newChestTier = Math.min(Math.floor(distanceFromCenter / 2000), 4);
+
                 for (let chest of gameState.chests) {
                     const dx = x - chest.x;
                     const dy = y - chest.y;
-                    if (Math.sqrt(dx * dx + dy * dy) < 50) {
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    // Purple-to-Purple: 350 units, anything else: 500 units
+                    const minDistance = (newChestTier === 0 && chest.tier === 0) ? 350 : 500;
+
+                    if (distance < minDistance) {
                         validPosition = false;
                         break;
                     }
@@ -2945,7 +3230,27 @@ function spawnChests(count) {
         }
 
         if (validPosition) {
-            gameState.chests.push(new Chest(x, y, distanceFromCenter));
+            // Calculate tier to determine spawn probability
+            const tier = Math.min(Math.floor(distanceFromCenter / 2000), 4);
+
+            // Spawn probability based on tier
+            let spawnProbability = 1.0; // Default: 100%
+            if (tier === 0) {
+                spawnProbability = 0.8; // Purple: 80% chance
+            } else if (tier === 1) {
+                spawnProbability = 0.65; // Green: 65% chance
+            } else if (tier === 2) {
+                spawnProbability = 0.55; // Blue: 55% chance
+            } else if (tier === 3) {
+                spawnProbability = 0.4; // Red: 40% chance
+            } else if (tier === 4) {
+                spawnProbability = 0.3; // Magenta: 30% chance
+            }
+
+            // Only spawn if probability check passes
+            if (Math.random() < spawnProbability) {
+                gameState.chests.push(new Chest(x, y, distanceFromCenter));
+            }
         }
     }
 }
@@ -3294,18 +3599,27 @@ function drawHouseInterior(ctx) {
             }
         }
 
-        // Draw dropped companion (scaled with companion size)
+        // Draw dropped companion (larger and more visible)
         const companionSize = dropped.companion.sizeMultiplier || 1.0;
+        const droppedScale = 1.5; // Make dropped companions 50% larger for visibility
+
+        // Shadow
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.beginPath();
-        ctx.ellipse(dropped.houseX + (20 * companionSize), dropped.houseY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
+        ctx.ellipse(
+            dropped.houseX + (20 * companionSize * droppedScale),
+            dropped.houseY + (35 * companionSize * droppedScale),
+            8 * companionSize * droppedScale,
+            2 * companionSize * droppedScale,
+            0, 0, Math.PI * 2
+        );
         ctx.fill();
 
         const image = friendImages[dropped.type];
         if (image && image.complete) {
             dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
-            const width = 40 * companionSize;
-            const height = 40 * companionSize;
+            const width = 40 * companionSize * droppedScale;  // 1.5x larger
+            const height = 40 * companionSize * droppedScale;
             ctx.drawImage(image, dropped.houseX, dropped.houseY + Math.sin(dropped.bobOffset) * 2, width, height);
         }
     }
@@ -4315,6 +4629,253 @@ function updateUI() {
     // UI is drawn in the game loop on the canvas
 }
 
+// Minimap rendering
+function drawMinimap(ctx) {
+    if (!gameState.showMinimap || !gameState.village) return;
+
+    // Calculate scale to fit map on screen with padding
+    const padding = 40;
+    const availableWidth = canvas.width - (padding * 2);
+    const availableHeight = canvas.height - (padding * 2);
+
+    const scaleX = availableWidth / gameState.village.width;
+    const scaleY = availableHeight / gameState.village.height;
+    const scale = Math.min(scaleX, scaleY);
+
+    const mapWidth = gameState.village.width * scale;
+    const mapHeight = gameState.village.height * scale;
+    const mapX = (canvas.width - mapWidth) / 2;
+    const mapY = (canvas.height - mapHeight) / 2;
+
+    ctx.save();
+
+    // Draw semi-transparent background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw map border
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(mapX - 2, mapY - 2, mapWidth + 4, mapHeight + 4);
+
+    // Draw map background
+    ctx.fillStyle = '#2d5016';
+    ctx.fillRect(mapX, mapY, mapWidth, mapHeight);
+
+    // Draw trees as small dots (always visible)
+    ctx.fillStyle = '#1a3010';
+    for (let tree of gameState.village.trees) {
+        const x = Math.floor(mapX + (tree.x * scale));
+        const y = Math.floor(mapY + (tree.y * scale));
+        ctx.fillRect(x - 1, y - 1, 2, 2); // Fixed 2x2 pixels
+    }
+
+    // Draw buildings with actual images (always visible)
+    for (let building of gameState.village.buildings) {
+        const x = mapX + (building.x * scale);
+        const y = mapY + (building.y * scale);
+        const w = building.width * scale;
+        const h = building.height * scale;
+
+        // Use actual house image
+        const houseKey = `house${building.houseType}`;
+        const houseImage = houseImages[houseKey];
+        if (houseImage && houseImage.complete) {
+            ctx.drawImage(houseImage, x, y, w, h);
+        } else {
+            // Fallback to colored rectangle
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(x, y, w, h);
+        }
+    }
+
+    // Draw fountain with actual image (always visible)
+    if (gameState.village.catFountain) {
+        const fountain = gameState.village.catFountain;
+        const x = mapX + (fountain.x * scale);
+        const y = mapY + (fountain.y * scale);
+        const w = fountain.width * scale;
+        const h = fountain.height * scale;
+
+        if (catFountainImage && catFountainImage.complete) {
+            ctx.drawImage(catFountainImage, x, y, w, h);
+        } else {
+            // Fallback to colored rectangle
+            ctx.fillStyle = '#00CED1';
+            ctx.fillRect(x, y, w, h);
+        }
+    }
+
+    // Draw chests as colored squares (if enabled)
+    for (let chest of gameState.chests) {
+        if (chest.opened) continue;
+
+        // Check if this chest tier is enabled
+        const tierEnabled = {
+            'purple': gameState.minimapLayers.chestsPurple,
+            'green': gameState.minimapLayers.chestsGreen,
+            'blue': gameState.minimapLayers.chestsBlue,
+            'red': gameState.minimapLayers.chestsRed,
+            'magenta': gameState.minimapLayers.chestsMagenta
+        };
+
+        if (!tierEnabled[chest.color]) continue;
+
+        const x = Math.floor(mapX + (chest.x * scale));
+        const y = Math.floor(mapY + (chest.y * scale));
+
+        // Use fixed size based on tier for visibility
+        const tierSizes = {
+            'purple': 3,
+            'green': 4,
+            'blue': 5,
+            'red': 6,
+            'magenta': 7
+        };
+        const size = tierSizes[chest.color] || 3;
+
+        // Draw with bright colors for visibility
+        const colors = {
+            'purple': '#9370DB',
+            'green': '#00FF00',
+            'blue': '#00FFFF',
+            'red': '#FF0000',
+            'magenta': '#FF00FF'
+        };
+
+        ctx.fillStyle = colors[chest.color] || '#FFFFFF';
+        ctx.fillRect(x - Math.floor(size/2), y - Math.floor(size/2), size, size);
+    }
+
+    // Draw companions (if enabled) - make them more visible
+    if (gameState.minimapLayers.companions) {
+        // Draw following companions
+        for (let companion of gameState.companions) {
+            const x = Math.floor(mapX + (companion.x * scale));
+            const y = Math.floor(mapY + (companion.y * scale));
+
+            // Draw glow
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw companion
+            ctx.fillStyle = '#FFFF00';
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Draw dropped companions as 0.75x scaled images
+        for (let dropped of gameState.droppedCompanions) {
+            if (!dropped.isInHouse) {
+                const x = Math.floor(mapX + (dropped.x * scale));
+                const y = Math.floor(mapY + (dropped.y * scale));
+
+                // Draw the actual companion image at 0.75x scale
+                const image = friendImages[dropped.type];
+                if (image && image.complete) {
+                    const imgSize = 30; // 0.75x of normal 40px size
+                    ctx.drawImage(image, x - imgSize/2, y - imgSize/2, imgSize, imgSize);
+                }
+            }
+        }
+    }
+
+    // Draw player with pulsing effect (always visible)
+    if (gameState.player) {
+        const x = mapX + (gameState.player.x * scale);
+        const y = mapY + (gameState.player.y * scale);
+        const size = Math.max(3, 5 * scale);
+        const pulse = Math.sin(Date.now() / 200) * 0.3 + 1.0;
+
+        // Outer glow
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.beginPath();
+        ctx.arc(x, y, size * pulse * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Player dot
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(x, y, size * pulse, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Draw title and instructions
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('World Map', canvas.width / 2, mapY - 15);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '16px Arial';
+    ctx.fillText('Press M to close', canvas.width / 2, canvas.height - 15);
+
+    // Draw legend with actual images and toggles
+    const legendX = mapX + 10;
+    const legendY = mapY + 10;
+    const iconSize = 16;
+    const rowHeight = 20;
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+
+    // Clear legend bounds for click detection
+    gameState.minimapLegendBounds = [];
+
+    const legend = [
+        { text: 'Purple', image: chestImages.purple?.full, toggleKey: 'chestsPurple' },
+        { text: 'Green', image: chestImages.green?.full, toggleKey: 'chestsGreen' },
+        { text: 'Blue', image: chestImages.blue?.full, toggleKey: 'chestsBlue' },
+        { text: 'Red', image: chestImages.red?.full, toggleKey: 'chestsRed' },
+        { text: 'Magenta', image: chestImages.magenta?.full, toggleKey: 'chestsMagenta' },
+        { text: 'Companions', image: friendImages.kitten1, toggleKey: 'companions' }
+    ];
+
+    legend.forEach((item, i) => {
+        const y = legendY + (i * rowHeight);
+        const isEnabled = gameState.minimapLayers[item.toggleKey];
+
+        // Store clickable bounds
+        gameState.minimapLegendBounds.push({
+            x: legendX,
+            y: y,
+            width: 200,
+            height: rowHeight,
+            toggleKey: item.toggleKey
+        });
+
+        // Draw checkbox
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(legendX, y, 14, 14);
+        if (isEnabled) {
+            ctx.fillStyle = '#00FF00';
+            ctx.fillRect(legendX + 3, y + 3, 8, 8);
+        }
+
+        // Draw icon/image
+        const iconX = legendX + 20;
+        if (item.image && item.image.complete) {
+            ctx.globalAlpha = isEnabled ? 1.0 : 0.3;
+            ctx.drawImage(item.image, iconX, y, iconSize, iconSize);
+            ctx.globalAlpha = 1.0;
+        } else if (item.color) {
+            ctx.fillStyle = item.color;
+            ctx.globalAlpha = isEnabled ? 1.0 : 0.3;
+            ctx.fillRect(iconX, y + 2, iconSize, iconSize - 4);
+            ctx.globalAlpha = 1.0;
+        }
+
+        // Draw text
+        ctx.fillStyle = isEnabled ? '#FFFFFF' : '#888888';
+        ctx.fillText(item.text, iconX + iconSize + 5, y + 11);
+    });
+
+    ctx.restore();
+}
+
 // Game Loop
 let lastTime = Date.now();
 
@@ -4369,12 +4930,15 @@ function gameLoop() {
             companion.draw(ctx);
         }
 
-        // Update and draw dropped companions (outside only)
+        // Update dropped companions (collision detection only - drawing happens after night overlay)
         for (let i = gameState.droppedCompanions.length - 1; i >= 0; i--) {
             const dropped = gameState.droppedCompanions[i];
 
             // Skip if this companion is in a house (those are handled in drawHouseInterior)
             if (dropped.isInHouse) continue;
+
+            // Update bob offset for animation
+            dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
 
             // Check if player touches the dropped companion
             if (gameState.player) {
@@ -4388,26 +4952,6 @@ function gameLoop() {
                     gameState.droppedCompanions.splice(i, 1);
                     continue;
                 }
-            }
-
-            // Draw the companion at their dropped position
-            const screenX = dropped.x - gameState.camera.x;
-            const screenY = dropped.y - gameState.camera.y;
-
-            // Draw shadow (scaled with companion size)
-            const companionSize = dropped.companion.sizeMultiplier || 1.0;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-            ctx.beginPath();
-            ctx.ellipse(screenX + (20 * companionSize), screenY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            // Draw friend image (scaled with companion size)
-            const image = friendImages[dropped.type];
-            if (image && image.complete) {
-                dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
-                const width = 40 * companionSize;
-                const height = 40 * companionSize;
-                ctx.drawImage(image, screenX, screenY + Math.sin(dropped.bobOffset) * 2, width, height);
             }
         }
 
@@ -4458,7 +5002,7 @@ function gameLoop() {
                     if (distance < 40) {
                         // Player picked up firefly - give XP based on value and increment jar count
                         gainXP(firefly.xpValue || 10);
-                        gameState.fireflyCount++;
+                        gameState.fireflyCount = Math.min(999, gameState.fireflyCount + 1);
                         return false; // Remove firefly
                     }
                 }
@@ -4555,6 +5099,51 @@ function gameLoop() {
             companion.draw(ctx);
         }
 
+        // Draw dropped companions after night overlay so they stay bright
+        for (let dropped of gameState.droppedCompanions) {
+            // Skip if this companion is in a house (those are handled in drawHouseInterior)
+            if (dropped.isInHouse) continue;
+
+            const screenX = dropped.x - gameState.camera.x;
+            const screenY = dropped.y - gameState.camera.y;
+
+            // Draw shadow (scaled with companion size)
+            const companionSize = dropped.companion.sizeMultiplier || 1.0;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.beginPath();
+            ctx.ellipse(screenX + (20 * companionSize), screenY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Draw friend image (scaled with companion size) with colored glow at night
+            const image = friendImages[dropped.type];
+            if (image && image.complete) {
+                const width = 40 * companionSize;
+                const height = 40 * companionSize;
+                const bobY = screenY + Math.sin(dropped.bobOffset) * 2;
+
+                if (gameState.isNight) {
+                    // Assign glow color based on companion type (matching Companion class)
+                    const glowColors = {
+                        kitten1: '#FFA500',  // Orange
+                        kitten2: '#FFA500',  // Orange
+                        kitten3: '#FFA500',  // Orange
+                        frog: '#32CD32',     // Lime green
+                        squirrel: '#D2691E', // Chocolate brown
+                        puppy: '#DAA520',    // Goldenrod
+                        bunny: '#FFB6C1'     // Light pink
+                    };
+
+                    ctx.save();
+                    ctx.shadowBlur = 20 * companionSize; // Larger glow for dropped companions
+                    ctx.shadowColor = glowColors[dropped.type] || '#FFFFFF'; // Default white
+                    ctx.drawImage(image, screenX, bobY, width, height);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(image, screenX, bobY, width, height);
+                }
+            }
+        }
+
         // Draw fading title image over fountain at game start
         if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0 && titleImage.complete) {
             const timeSinceStart = Date.now() - gameState.gameStartTime;
@@ -4598,11 +5187,6 @@ function gameLoop() {
 
     // Handle player interactions (E key) - works both inside and outside houses
     handleInteractions();
-
-    // Handle F key for large chests (only outside)
-    if (!gameState.isInsideHouse) {
-        handleFKeyInteractions();
-    }
 
     // Draw level and XP HUD in upper left
     if (!gameState.isInsideHouse) {
@@ -4794,6 +5378,9 @@ function gameLoop() {
             ctx.restore();
         }
     }
+
+    // Draw minimap overlay if enabled
+    drawMinimap(ctx);
 
     requestAnimationFrame(gameLoop);
 }

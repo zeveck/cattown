@@ -224,6 +224,10 @@ cattown/
 
 Simply edit the files and refresh your browser to see changes. No build process required.
 
+### Debug Controls
+
+- **Shift + Plus** - Add 10 fireflies (for testing chest unlocks)
+
 ---
 
 Design by Clara and family.
