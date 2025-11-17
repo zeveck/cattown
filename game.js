@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.2.9
+// Clara's Cat Town - Version 0.2.12
 
 // Game Configuration
 const CONFIG = {
@@ -391,7 +391,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.2.11',
+            version: '0.2.12',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -5315,7 +5315,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.11', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.2.12', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

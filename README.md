@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.11
+## Version 0.2.12
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,28 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.2.12
+- **Chest Spawn System Improvements**:
+  - Reduced chest density: Purple 80%, Green 65%, Blue 55%, Red 40%, Magenta 30%
+  - Increased minimum distance between chests (350 units for purple-to-purple, 500 units for others)
+  - Prevents awkward chest clusters while maintaining good distribution
+- **Companion Spawn Animations**:
+  - Fine-tuned arc durations: Red 1.4s, Magenta 1.8s for perfect arcs
+  - Tighter spawn offsets (±20px) for centered chest spawns
+  - Purple chests now have omnidirectional particle burst
+  - Reduced particle speeds for graceful arcing effects
+- **Companion Following Behavior**:
+  - Newly spawned companions move immediately at 1.5x speed to catch up
+  - No more sitting idle when line is long
+- **Minimap Enhancements**:
+  - Dropped companions show as 0.75x scaled images (not just glows)
+  - Removed firefly cost labels from legend for cleaner UI
+- **Dropped Companions**:
+  - Now stay bright at night (drawn after darkness overlay)
+  - More visible with proper night glows
+- **Item Density**: Doubled hearts from 100 to 200 for more speed boosts in forest
+- **Controls Update**: F key no longer opens chests (E key handles all chest interactions)
 
 ### v0.2.11
 - **File Organization**: Reorganized cat graphics into dedicated subfolder
