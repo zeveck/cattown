@@ -22,30 +22,29 @@ The game has debug controls built-in:
 ## Core Architecture
 
 ### Single-File Structure
-All game logic lives in `game.js` (~5400 lines). The architecture is organized into sections:
+All game logic lives in `game.js` (~4900 lines). The architecture is organized into sections:
 
 1. **Configuration** (top): `CONFIG` object with game constants
-2. **Game State** (lines 15-117): Single `gameState` object containing all game data
-3. **Character Creation** (lines 120-645): Preview system and UI handlers
-4. **Audio System** (lines 335-389): Background music playlist management
-5. **Save/Load System** (lines 390-642): JSON-based game state persistence
-6. **Core Classes** (lines 648-2375):
-   - `Player` (line 648): Character with transform (human/cat) states
-   - `Enemy` (line 1039): Basic enemy AI
-   - `Companion` (line 1167): Follower system with line-following behavior
-   - `Projectile` (line 1301): Magic attack system
-   - `Particle` (line 1412): Visual effects
-   - `Item` (line 1448): Collectibles (hearts for speed boosts)
-   - `Chest` (line 1537): Multi-tier treasure chests requiring fireflies
-   - `Village` (line 1964): Circular town layout with houses
-7. **Image Loading** (lines 2377-2540): Preloading all sprites
-8. **Music System** (lines 2713-2755): Auto-advancing playlist
-9. **Input Handlers** (lines 2757-3122): Keyboard/mouse event listeners
-10. **Spawn Functions** (lines 3124-3296): Enemy, item, and chest generation
-11. **House Interior System** (lines 3296-4272): Furniture shop and placement
-12. **Day/Night Cycle** (lines 4274-4625): Time-based lighting and firefly spawning
-13. **UI/HUD Rendering** (lines 4627-5169): Level, XP, minimap, compass
-14. **Game Loop** (lines 4879-5386): Main update/render cycle
+2. **Game State**: Single `gameState` object containing all game data
+3. **Character Creation**: Preview system and UI handlers
+4. **Audio System**: Background music playlist management
+5. **Save/Load System**: JSON-based game state persistence
+6. **Core Classes**:
+   - `Player`: Character with transform (human/cat) states
+   - `Companion`: Follower system with line-following behavior
+   - `Projectile`: Magic attack system
+   - `Particle`: Visual effects
+   - `Item`: Collectibles (hearts for speed boosts)
+   - `Chest`: Multi-tier treasure chests requiring fireflies
+   - `Village`: Circular town layout with houses
+7. **Image Loading**: Preloading all sprites
+8. **Music System**: Auto-advancing playlist
+9. **Input Handlers**: Keyboard/mouse event listeners
+10. **Spawn Functions**: Item and chest generation
+11. **House Interior System**: Furniture shop and placement
+12. **Day/Night Cycle**: Time-based lighting and firefly spawning
+13. **UI/HUD Rendering**: Level, XP, minimap, compass
+14. **Game Loop**: Main update/render cycle
 
 ### Key Game Systems
 
@@ -185,14 +184,14 @@ All sprites in `/graphics` directory:
 3. Add entry to `gameState.furnitureShop` array (line 89)
 
 ## Version History
-Current version: **v0.2.14**
+Current version: **v0.3.0**
 
 Major version updates documented in README.md. Recent focus:
+- v0.3.0: Major performance overhaul (viewport culling, gradient caching, deltaTime animations), dead code removal, bug fixes
 - v0.2.14: Controls panel bug fix (auto-show race condition), code refactoring (hasUserInteracted)
 - v0.2.13: SEO & social media meta tags for better sharing on social platforms
 - v0.2.12: Chest spawn improvements, companion spawn animations, minimap enhancements
 - v0.2.10: Save/load system implementation
-- v0.2.2: Firefly collection, enhanced chest system, speed boosts
 
 ## Credits
 - Design: Clara and family

@@ -46,7 +46,11 @@
       "Bash(npx http-server:*)",
       "mcp__playwright__browser_run_code",
       "Bash(awk:*)",
-      "Bash(/workspaces/cattown/game.js)"
+      "Bash(/workspaces/cattown/game.js)",
+      "mcp__ide__getDiagnostics",
+      "Bash(lsof:*)",
+      "Bash(sort:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   },

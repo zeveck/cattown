@@ -1,34 +1,189 @@
-// Clara's Cat Town - Version 0.2.14
+// Clara's Cat Town - Version 0.3.0
 
 // Game Configuration
 const CONFIG = {
-    TILE_SIZE: 40,
     PLAYER_SPEED: 3,
-    ENEMY_SPEED: 1.5,
-    NIGHT_ENEMY_SPEED_MULTIPLIER: 1.5,
     MAGIC_COOLDOWN: 500,
-    COMPANION_SPEED: 2.5,
+    COMPANION_SPEED: 2.9,
     DAY_LENGTH: 60000, // 60 seconds per day
     CAT_SPEED_MULTIPLIER: 1.3, // Cats move 30% faster than human form
 };
 
+// Chest tier configuration (colors, glow effects, minimap display)
+const CHEST_CONFIG = {
+    purple:  { tier: 0, color: '#9370DB', glow: '#9370DB', minimapSize: 3 },
+    green:   { tier: 1, color: '#00FF00', glow: '#FFD700', minimapSize: 4 },
+    blue:    { tier: 2, color: '#00FFFF', glow: '#0000FF', minimapSize: 5 },
+    red:     { tier: 3, color: '#FF0000', glow: '#FF0000', minimapSize: 6 },
+    magenta: { tier: 4, color: '#FF00FF', glow: '#9370DB', minimapSize: 7 }
+};
+
+// Interior layout constants (shared across all interior-related functions)
+// Cached after first call since canvas size is constant
+let cachedInteriorLayout = null;
+
+function getInteriorLayout() {
+    if (cachedInteriorLayout) {
+        return cachedInteriorLayout;
+    }
+
+    const margin = 10;
+    const roomWidth = canvas.width - (margin * 2);
+    const roomHeight = canvas.height - (margin * 2) - 200;
+    const roomX = margin;
+    const roomY = margin;
+    const wallThickness = 35;
+    const shopY = roomY + roomHeight + 40;
+    const shopX = margin + 10;
+    const itemWidth = 110;
+    const gap = 12;
+
+    cachedInteriorLayout = {
+        margin,
+        roomWidth,
+        roomHeight,
+        roomX,
+        roomY,
+        wallThickness,
+        shopY,
+        shopX,
+        itemWidth,
+        gap
+    };
+
+    return cachedInteriorLayout;
+}
+
+// Utility: Calculate distance between two points
+function getDistance(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+// Utility: Check if two objects are within a certain distance
+function isNearPoint(x1, y1, x2, y2, distance) {
+    return getDistance(x1, y1, x2, y2) < distance;
+}
+
+// Utility: Try to start background music (handles user interaction requirement)
+function tryStartMusic() {
+    if (!gameState.musicStarted) {
+        gameState.musicStarted = true;
+        bgMusic.play().catch(() => {
+            gameState.musicStarted = false; // Allow retry on error
+        });
+    }
+}
+
+// Utility: Apply purple glow effect for night rendering
+function applyNightGlow(ctx) {
+    if (gameState.isNight) {
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#9370DB'; // Medium purple
+    }
+}
+
+// Utility: Draw shadow ellipse under companions
+function drawCompanionShadow(ctx, x, y, sizeMultiplier = 1.0) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.ellipse(
+        x + 20 * sizeMultiplier,
+        y + 35 * sizeMultiplier,
+        8 * sizeMultiplier,
+        2 * sizeMultiplier,
+        0, 0, Math.PI * 2
+    );
+    ctx.fill();
+}
+
+// Utility: Draw a HUD-style popup with text lines
+// lines: array of {text, color} objects or simple strings (defaults to white)
+// options: { borderColor, font, lineHeight, padding, cornerRadius }
+function drawHudPopup(ctx, centerX, bottomY, lines, options = {}) {
+    const {
+        borderColor = 'rgba(255, 215, 0, 0.8)',
+        font = 'bold 14px Arial',
+        lineHeight = 14,
+        padding = 10,
+        cornerRadius = 6
+    } = options;
+
+    ctx.font = font;
+    ctx.textAlign = 'center';
+
+    // Normalize lines to {text, color} format
+    const normalizedLines = lines.map(line =>
+        typeof line === 'string' ? { text: line, color: '#FFF' } : line
+    );
+
+    // Calculate dimensions
+    const textWidths = normalizedLines.map(line => ctx.measureText(line.text).width);
+    const maxWidth = Math.max(...textWidths);
+    const frameWidth = maxWidth + padding * 2;
+    const frameHeight = normalizedLines.length * lineHeight + padding * 2;
+    const frameX = centerX - frameWidth / 2;
+    const frameY = bottomY - frameHeight - 10;
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
+    ctx.stroke();
+
+    // Text lines
+    normalizedLines.forEach((line, i) => {
+        ctx.fillStyle = line.color;
+        ctx.fillText(line.text, centerX, frameY + padding + (i + 0.5) * lineHeight);
+    });
+}
+
+// Utility: Teleport player and companions to the cat fountain
+function teleportToFountain() {
+    if (!gameState.player || !gameState.village || !gameState.village.catFountain) return;
+    if (gameState.isInsideHouse) return;
+
+    const fountain = gameState.village.catFountain;
+    const fountainCenterX = fountain.x + fountain.width / 2;
+    const fountainBottomY = fountain.y + fountain.height;
+
+    // Position player in front of fountain
+    gameState.player.x = fountainCenterX - gameState.player.width / 2;
+    gameState.player.y = fountainBottomY + 50;
+
+    // Teleport companions in a ring around the player
+    gameState.companions.forEach((companion, index) => {
+        const angle = (index / gameState.companions.length) * Math.PI * 2;
+        const radius = 80;
+        companion.x = gameState.player.x + Math.cos(angle) * radius;
+        companion.y = gameState.player.y + Math.sin(angle) * radius;
+        companion.targetX = companion.x;
+        companion.targetY = companion.y;
+    });
+}
+
+// Companion Glow Colors (for night rendering)
+const COMPANION_GLOW_COLORS = {
+    kitten1: '#FFA500',  // Orange
+    kitten2: '#FFA500',  // Orange
+    kitten3: '#FFA500',  // Orange
+    frog: '#32CD32',     // Lime green
+    squirrel: '#D2691E', // Chocolate brown
+    puppy: '#DAA520',    // Goldenrod
+    bunny: '#FFB6C1'     // Light pink
+};
+
 // Game State
 const gameState = {
-    currentScene: 'game',
-    playerCustomization: {
-        name: 'Hero',
-        skinColor: '#ffdbac',
-        hairColor: '#8B4513',
-        outfitColor: '#4169E1'
-    },
-    catCustomization: {
-        name: 'Whiskers',
-        furColor: '#FF8C00',
-        pattern: 'solid',
-        patternColor: '#8B4513'
-    },
     player: null,
-    enemies: [],
     companions: [],
     droppedCompanions: [],
     items: [],
@@ -41,10 +196,8 @@ const gameState = {
     keys: {},
     mousePos: { x: 0, y: 0 },
     compassHover: false,
-    catCash: 0,
     fireflyCount: 0,
     eKeyWasPressed: false,
-    fKeyWasPressed: false,
     musicStarted: false,
     gameStartTime: 0,
     level: 1,
@@ -54,8 +207,6 @@ const gameState = {
     isNight: false,
     previousIsNight: false,
     gameTime: 6000, // Start right at sunrise (timeOfDay: 0.1, just after dawn)
-    playerHouse: null,
-    furnitureList: [],
     isInsideHouse: false,
     currentHouseId: null,
     houseFurniture: {}, // Store furniture per house ID
@@ -63,7 +214,7 @@ const gameState = {
     selectedFurnitureType: null,
     selectedPlacedFurniture: null,
     isDraggingFurniture: false,
-    furnitureRotation: 0,
+    placementRotation: 0, // Current rotation for furniture being placed
     lastHouseExitTime: 0,
     isDraggingSlider: false,
     draggedSliderType: null, // 'color' or 'size'
@@ -87,13 +238,21 @@ const gameState = {
         plant: 1.0,
         lamp: 1.0
     },
+    furnitureTypeRotations: { // Per-type default rotations
+        bed: 0,
+        table: 0,
+        chair: 0,
+        rug: 0,
+        plant: 0,
+        lamp: 0
+    },
     furnitureShop: [
-        { type: 'bed', name: 'Bed', cost: 100, color: '#8B4513', width: 80, height: 100 },
-        { type: 'table', name: 'Table', cost: 50, color: '#D2691E', width: 60, height: 60 },
-        { type: 'chair', name: 'Chair', cost: 30, color: '#A0522D', width: 40, height: 40 },
-        { type: 'rug', name: 'Rug', cost: 40, color: '#DC143C', width: 100, height: 80 },
-        { type: 'plant', name: 'Plant', cost: 25, color: '#228B22', width: 30, height: 40 },
-        { type: 'lamp', name: 'Lamp', cost: 35, color: '#FFD700', width: 30, height: 50 }
+        { type: 'bed', name: 'Bed', color: '#8B4513', width: 80, height: 100 },
+        { type: 'table', name: 'Table', color: '#D2691E', width: 60, height: 60 },
+        { type: 'chair', name: 'Chair', color: '#A0522D', width: 40, height: 40 },
+        { type: 'rug', name: 'Rug', color: '#DC143C', width: 100, height: 80 },
+        { type: 'plant', name: 'Plant', color: '#228B22', width: 30, height: 40 },
+        { type: 'lamp', name: 'Lamp', color: '#FFD700', width: 30, height: 50 }
     ],
     notification: {
         message: '',
@@ -103,213 +262,21 @@ const gameState = {
     },
     showMinimap: false,
     minimapLayers: {
-        trees: true,
-        buildings: true,
-        fountain: true,
         chestsPurple: true,
         chestsGreen: true,
         chestsBlue: true,
         chestsRed: true,
         chestsMagenta: true,
-        companions: true,
-        player: true
+        companions: true
     },
     minimapLegendBounds: [] // Will store clickable areas for legend items
 };
 
-// Character Creation
-const previewCanvas = document.getElementById('previewCanvas');
-const previewCtx = previewCanvas.getContext('2d');
-
-function updatePreview() {
-    previewCtx.fillStyle = '#ffffff';
-    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-
-    // Draw human preview
-    drawHumanPreview(100, 100);
-
-    // Draw cat preview
-    drawCatPreview(300, 100);
-}
-
-function drawHumanPreview(x, y) {
-    const custom = gameState.playerCustomization;
-
-    // Head
-    previewCtx.fillStyle = custom.skinColor;
-    previewCtx.fillRect(x - 15, y - 30, 30, 30);
-
-    // Hair
-    previewCtx.fillStyle = custom.hairColor;
-    previewCtx.fillRect(x - 18, y - 35, 36, 10);
-
-    // Body
-    previewCtx.fillStyle = custom.outfitColor;
-    previewCtx.fillRect(x - 20, y, 40, 40);
-
-    // Arms
-    previewCtx.fillRect(x - 30, y + 5, 10, 25);
-    previewCtx.fillRect(x + 20, y + 5, 10, 25);
-
-    // Legs
-    previewCtx.fillRect(x - 15, y + 40, 12, 30);
-    previewCtx.fillRect(x + 3, y + 40, 12, 30);
-
-    // Eyes
-    previewCtx.fillStyle = '#000';
-    previewCtx.fillRect(x - 10, y - 20, 5, 5);
-    previewCtx.fillRect(x + 5, y - 20, 5, 5);
-
-    // Name
-    previewCtx.fillStyle = '#333';
-    previewCtx.font = 'bold 14px Arial';
-    previewCtx.textAlign = 'center';
-    previewCtx.fillText(custom.name, x, y + 90);
-}
-
-function drawCatPreview(x, y) {
-    const custom = gameState.catCustomization;
-
-    // Body
-    previewCtx.fillStyle = custom.furColor;
-    previewCtx.beginPath();
-    previewCtx.ellipse(x, y + 10, 25, 20, 0, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    // Head
-    previewCtx.beginPath();
-    previewCtx.ellipse(x, y - 10, 20, 18, 0, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    // Ears
-    previewCtx.beginPath();
-    previewCtx.moveTo(x - 15, y - 20);
-    previewCtx.lineTo(x - 10, y - 28);
-    previewCtx.lineTo(x - 5, y - 20);
-    previewCtx.fill();
-
-    previewCtx.beginPath();
-    previewCtx.moveTo(x + 5, y - 20);
-    previewCtx.lineTo(x + 10, y - 28);
-    previewCtx.lineTo(x + 15, y - 20);
-    previewCtx.fill();
-
-    // Tail
-    previewCtx.beginPath();
-    previewCtx.arc(x + 25, y + 5, 8, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    // Pattern
-    if (custom.pattern === 'stripes') {
-        previewCtx.fillStyle = custom.patternColor;
-        for (let i = 0; i < 3; i++) {
-            previewCtx.fillRect(x - 20, y + i * 10, 40, 4);
-        }
-    } else if (custom.pattern === 'spots') {
-        previewCtx.fillStyle = custom.patternColor;
-        previewCtx.beginPath();
-        previewCtx.arc(x - 10, y, 5, 0, Math.PI * 2);
-        previewCtx.arc(x + 10, y, 5, 0, Math.PI * 2);
-        previewCtx.arc(x, y + 15, 5, 0, Math.PI * 2);
-        previewCtx.fill();
-    }
-
-    // Eyes
-    previewCtx.fillStyle = '#FFD700';
-    previewCtx.beginPath();
-    previewCtx.ellipse(x - 7, y - 12, 4, 6, 0, 0, Math.PI * 2);
-    previewCtx.ellipse(x + 7, y - 12, 4, 6, 0, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    // Pupils
-    previewCtx.fillStyle = '#000';
-    previewCtx.fillRect(x - 8, y - 13, 2, 4);
-    previewCtx.fillRect(x + 6, y - 13, 2, 4);
-
-    // Nose
-    previewCtx.fillStyle = '#FF69B4';
-    previewCtx.beginPath();
-    previewCtx.moveTo(x, y - 5);
-    previewCtx.lineTo(x - 3, y - 8);
-    previewCtx.lineTo(x + 3, y - 8);
-    previewCtx.fill();
-
-    // Name
-    previewCtx.fillStyle = '#333';
-    previewCtx.font = 'bold 14px Arial';
-    previewCtx.textAlign = 'center';
-    previewCtx.fillText(custom.name, x, y + 50);
-}
-
-// Character Creation Event Listeners (only if elements exist)
-const playerNameInput = document.getElementById('playerName');
-if (playerNameInput) {
-    playerNameInput.addEventListener('input', (e) => {
-        gameState.playerCustomization.name = e.target.value;
-        updatePreview();
-    });
-}
-
-const skinColorInput = document.getElementById('skinColor');
-if (skinColorInput) {
-    skinColorInput.addEventListener('input', (e) => {
-        gameState.playerCustomization.skinColor = e.target.value;
-        updatePreview();
-    });
-}
-
-const hairColorInput = document.getElementById('hairColor');
-if (hairColorInput) {
-    hairColorInput.addEventListener('input', (e) => {
-        gameState.playerCustomization.hairColor = e.target.value;
-        updatePreview();
-    });
-}
-
-const outfitColorInput = document.getElementById('outfitColor');
-if (outfitColorInput) {
-    outfitColorInput.addEventListener('input', (e) => {
-        gameState.playerCustomization.outfitColor = e.target.value;
-        updatePreview();
-    });
-}
-
-const catNameInput = document.getElementById('catName');
-if (catNameInput) {
-    catNameInput.addEventListener('input', (e) => {
-        gameState.catCustomization.name = e.target.value;
-        updatePreview();
-    });
-}
-
-const catFurColorInput = document.getElementById('catFurColor');
-if (catFurColorInput) {
-    catFurColorInput.addEventListener('input', (e) => {
-        gameState.catCustomization.furColor = e.target.value;
-        updatePreview();
-    });
-}
-
-const catPatternSelect = document.getElementById('catPattern');
-if (catPatternSelect) {
-    catPatternSelect.addEventListener('change', (e) => {
-        gameState.catCustomization.pattern = e.target.value;
-        updatePreview();
-    });
-}
-
-const catPatternColorInput = document.getElementById('catPatternColor');
-if (catPatternColorInput) {
-    catPatternColorInput.addEventListener('input', (e) => {
-        gameState.catCustomization.patternColor = e.target.value;
-        updatePreview();
-    });
-}
-
-const startGameButton = document.getElementById('startGame');
-if (startGameButton) {
-    startGameButton.addEventListener('click', startGame);
-}
+// Furniture lookup by type for O(1) access
+const furnitureByType = {};
+gameState.furnitureShop.forEach((furniture, index) => {
+    furnitureByType[furniture.type] = { furniture, index };
+});
 
 // Help button toggle for controls panel
 const helpButton = document.getElementById('helpButton');
@@ -401,13 +368,11 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.2.14',
+            version: '0.3.0',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
                 y: gameState.player.y,
-                health: gameState.player.health,
-                maxHealth: gameState.player.maxHealth,
                 isCat: gameState.player.isCat,
                 speed: gameState.player.speed,
                 baseSpeed: gameState.player.baseSpeed,
@@ -417,7 +382,6 @@ function saveGame() {
             level: gameState.level,
             xp: gameState.xp,
             xpToNextLevel: gameState.xpToNextLevel,
-            catCash: gameState.catCash,
             fireflyCount: gameState.fireflyCount,
             gameTime: gameState.gameTime,
             timeOfDay: gameState.timeOfDay,
@@ -469,6 +433,7 @@ function saveGame() {
             houseFurniture: gameState.houseFurniture,
             furnitureHues: { ...gameState.furnitureHues },
             furnitureSizes: { ...gameState.furnitureSizes },
+            furnitureRotations: { ...gameState.furnitureTypeRotations },
             isInsideHouse: gameState.isInsideHouse,
             currentHouseId: gameState.currentHouseId,
             audio: {
@@ -488,7 +453,6 @@ function saveGame() {
         link.click();
         URL.revokeObjectURL(url);
 
-        console.log('Game saved successfully!');
         showNotification('✓ Game saved successfully!', 3000);
     } catch (error) {
         console.error('Error saving game:', error);
@@ -507,8 +471,6 @@ function loadGame(saveData) {
         if (saveData.player && gameState.player) {
             gameState.player.x = saveData.player.x;
             gameState.player.y = saveData.player.y;
-            gameState.player.health = saveData.player.health;
-            gameState.player.maxHealth = saveData.player.maxHealth;
             gameState.player.isCat = saveData.player.isCat;
             gameState.player.speed = saveData.player.speed;
             gameState.player.baseSpeed = saveData.player.baseSpeed;
@@ -520,7 +482,6 @@ function loadGame(saveData) {
         gameState.level = saveData.level;
         gameState.xp = saveData.xp;
         gameState.xpToNextLevel = saveData.xpToNextLevel;
-        gameState.catCash = saveData.catCash;
         gameState.fireflyCount = Math.min(999, saveData.fireflyCount);
 
         // Restore time and environment
@@ -535,18 +496,22 @@ function loadGame(saveData) {
         );
 
         // Restore dropped companions with full structure
-        gameState.droppedCompanions = saveData.droppedCompanions.map(dropped => ({
-            companion: new Companion(dropped.companion.x, dropped.companion.y, dropped.companion.type, dropped.companion.sizeMultiplier),
-            x: dropped.x,
-            y: dropped.y,
-            type: dropped.type,
-            isInHouse: dropped.isInHouse,
-            houseId: dropped.houseId,
-            houseX: dropped.houseX,
-            houseY: dropped.houseY,
-            wanderTarget: null,
-            wanderCooldown: 0
-        }));
+        gameState.droppedCompanions = saveData.droppedCompanions.map(dropped => {
+            const companion = new Companion(dropped.companion.x, dropped.companion.y, dropped.companion.type, dropped.companion.sizeMultiplier);
+            return {
+                companion: companion,
+                x: dropped.x,
+                y: dropped.y,
+                type: dropped.type,
+                isInHouse: dropped.isInHouse,
+                houseId: dropped.houseId,
+                houseX: dropped.houseX,
+                houseY: dropped.houseY,
+                wanderTarget: null,
+                wanderCooldown: 0,
+                bobOffset: companion.bobOffset // Initialize from companion
+            };
+        });
 
         // Restore items
         gameState.items = saveData.items.map(item =>
@@ -580,12 +545,18 @@ function loadGame(saveData) {
             driftY: (Math.random() - 0.5) * 0.3
         }));
 
-        // Restore house furniture
-        gameState.houseFurniture = saveData.houseFurniture;
-        gameState.furnitureHues = { ...saveData.furnitureHues };
-        gameState.furnitureSizes = { ...saveData.furnitureSizes };
-        gameState.isInsideHouse = saveData.isInsideHouse;
-        gameState.currentHouseId = saveData.currentHouseId;
+        // Restore house furniture with defaults for forward compatibility
+        // NOTE: Use { ...defaults, ...(saveData.field || {}) } pattern when loading
+        // to ensure old saves work when new fields are added to the game.
+        const defaultFurnitureSettings = { bed: 0, table: 0, chair: 0, rug: 0, plant: 0, lamp: 0 };
+        const defaultFurnitureSizes = { bed: 1.0, table: 1.0, chair: 1.0, rug: 1.0, plant: 1.0, lamp: 1.0 };
+
+        gameState.houseFurniture = saveData.houseFurniture || {};
+        gameState.furnitureHues = { ...defaultFurnitureSettings, ...(saveData.furnitureHues || {}) };
+        gameState.furnitureSizes = { ...defaultFurnitureSizes, ...(saveData.furnitureSizes || {}) };
+        gameState.furnitureTypeRotations = { ...defaultFurnitureSettings, ...(saveData.furnitureRotations || {}) };
+        gameState.isInsideHouse = saveData.isInsideHouse || false;
+        gameState.currentHouseId = saveData.currentHouseId || null;
 
         // Restore placed furniture if inside house
         if (gameState.isInsideHouse && gameState.currentHouseId) {
@@ -602,11 +573,7 @@ function loadGame(saveData) {
             if (muteButton) muteButton.textContent = isMuted ? '🔇' : '🔊';
         }
 
-        // Update UI to reflect loaded state
-        updateUI();
-
-        console.log('Game loaded successfully!');
-        showNotification('Game loaded successfully!', 3000);
+        showNotification('✓ Game loaded successfully!', 3000);
     } catch (error) {
         console.error('Error loading game:', error);
         showNotification('✗ Failed to load game. File may be corrupted.', 4000);
@@ -649,11 +616,6 @@ if (loadButton && loadFileInput) {
     });
 }
 
-// Initialize preview (only if canvas exists)
-if (previewCanvas) {
-    updatePreview();
-}
-
 // Game Classes
 class Player {
     constructor(x, y) {
@@ -663,8 +625,6 @@ class Player {
         this.height = 64;
         this.speed = CONFIG.PLAYER_SPEED;
         this.baseSpeed = CONFIG.PLAYER_SPEED;
-        this.health = 200;
-        this.maxHealth = 200;
         this.isCat = false;
         this.lastMagicTime = 0;
         this.speedBoostEndTime = 0;
@@ -678,6 +638,84 @@ class Player {
         this.idleAnimationType = null; // 'yawn' or 'lick'
         this.idleAnimationStartTime = 0;
         this.idleAnimationDuration = 1200; // 1.2 seconds for idle animations
+        // House interior position (set when entering house)
+        this.houseX = 0;
+        this.houseY = 0;
+    }
+
+    // Shared animation logic for both world and interior movement
+    // centerX/Y: player's current position (for companion ring arrangement)
+    // isIndoors: if true, uses houseTargetX/Y for companions instead of targetX/Y
+    updateAnimation(moved, centerX, centerY, isIndoors = false) {
+        const dt = gameState.deltaTime || 16; // Fallback to 16ms if not set
+
+        // Update walking animation for both cat and human
+        this.isMoving = moved;
+        if (moved) {
+            this.walkingFrameCounter += dt;
+            // Switch frame every ~167ms (was 10 frames at 60fps)
+            if (this.walkingFrameCounter >= 167) {
+                this.walkingFrame = (this.walkingFrame + 1) % 2;
+                this.walkingFrameCounter = 0;
+            }
+        } else {
+            this.walkingFrameCounter = 0;
+            this.walkingFrame = 0;
+        }
+
+        // Idle animation logic for cat form
+        if (this.isCat && !moved) {
+            this.idleTime += dt;
+
+            // After 20 seconds, cat falls asleep
+            if (this.idleTime > 20000) {
+                if (this.idleAnimationType !== 'sleep') {
+                    this.idleAnimationType = 'sleep';
+
+                    // Arrange companions in a ring around the sleeping cat
+                    gameState.companions.forEach((companion, index) => {
+                        const angle = (index / gameState.companions.length) * Math.PI * 2;
+                        const radius = 80;
+                        if (isIndoors) {
+                            companion.houseTargetX = centerX + Math.cos(angle) * radius;
+                            companion.houseTargetY = centerY + Math.sin(angle) * radius;
+                        } else {
+                            companion.targetX = centerX + Math.cos(angle) * radius;
+                            companion.targetY = centerY + Math.sin(angle) * radius;
+                        }
+                    });
+                }
+            }
+            // Check if current idle animation has finished (but not sleep)
+            else if (this.idleAnimationType && this.idleAnimationType !== 'sleep' &&
+                     gameState.frameTime - this.idleAnimationStartTime > this.idleAnimationDuration) {
+                this.idleAnimationType = null;
+            }
+            // Randomly trigger a new idle animation
+            else if (!this.idleAnimationType && this.idleTime > 6000 && this.idleTime < 20000) {
+                if (Math.random() < 0.01) {
+                    this.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
+                    this.idleAnimationStartTime = gameState.frameTime;
+                }
+            }
+        } else {
+            // Reset idle state when moving or not a cat
+            this.idleTime = 0;
+            this.idleAnimationType = null;
+        }
+    }
+
+    // Check and expire speed boost
+    checkSpeedBoost() {
+        if (this.speedBoostEndTime > 0 && gameState.frameTime > this.speedBoostEndTime) {
+            this.speed = this.baseSpeed;
+            this.speedBoostEndTime = 0;
+        }
+    }
+
+    // Get actual movement speed (with cat multiplier)
+    getActualSpeed() {
+        return this.speed * (this.isCat ? CONFIG.CAT_SPEED_MULTIPLIER : 1);
     }
 
     update() {
@@ -685,14 +723,10 @@ class Player {
         const prevY = this.y;
 
         // Check if speed boost has expired
-        if (this.speedBoostEndTime > 0 && Date.now() > this.speedBoostEndTime) {
-            this.speed = this.baseSpeed;
-            this.speedBoostEndTime = 0;
-        }
+        this.checkSpeedBoost();
 
         // Movement
-        // Calculate actual speed with cat multiplier
-        const actualSpeed = this.speed * (this.isCat ? CONFIG.CAT_SPEED_MULTIPLIER : 1);
+        const actualSpeed = this.getActualSpeed();
         let moved = false;
         if (gameState.keys['ArrowUp']) {
             this.y -= actualSpeed;
@@ -713,59 +747,8 @@ class Player {
             moved = true;
         }
 
-        // Update walking animation for both cat and human
-        this.isMoving = moved;
-        if (moved) {
-            this.walkingFrameCounter++;
-            // Switch frame every 10 updates (adjust for speed)
-            if (this.walkingFrameCounter >= 10) {
-                this.walkingFrame = (this.walkingFrame + 1) % 2;
-                this.walkingFrameCounter = 0;
-            }
-        } else {
-            this.walkingFrameCounter = 0;
-            this.walkingFrame = 0;
-        }
-
-        // Idle animation logic for cat form
-        if (this.isCat && !moved) {
-            // Increment idle time
-            this.idleTime += 16; // Approximate ms per frame at 60 FPS
-
-            // After 20 seconds, cat falls asleep and stays asleep
-            if (this.idleTime > 20000) {
-                // Only set up sleep state once
-                if (this.idleAnimationType !== 'sleep') {
-                    this.idleAnimationType = 'sleep';
-
-                    // Arrange companions in a ring around the sleeping cat
-                    gameState.companions.forEach((companion, index) => {
-                        const angle = (index / gameState.companions.length) * Math.PI * 2;
-                        const radius = 80;
-                        companion.targetX = this.x + Math.cos(angle) * radius;
-                        companion.targetY = this.y + Math.sin(angle) * radius;
-                    });
-                }
-            }
-            // Check if current idle animation has finished (but not sleep - sleep persists)
-            else if (this.idleAnimationType && this.idleAnimationType !== 'sleep' && Date.now() - this.idleAnimationStartTime > this.idleAnimationDuration) {
-                this.idleAnimationType = null;
-            }
-            // Randomly trigger a new idle animation after being idle for a while (only if not sleeping)
-            else if (!this.idleAnimationType && this.idleTime > 6000 && this.idleTime < 20000) {
-                // Random chance to trigger animation (about 1% chance per frame when idle > 6s)
-                if (Math.random() < 0.01) {
-                    // Randomly choose yawn or lick
-                    this.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
-                    this.idleAnimationStartTime = Date.now();
-                    // Don't reset idleTime - let it keep accumulating toward sleep threshold
-                }
-            }
-        } else {
-            // Reset idle state when moving or not a cat
-            this.idleTime = 0;
-            this.idleAnimationType = null;
-        }
+        // Update animation state (walking frames, idle animations)
+        this.updateAnimation(moved, this.x, this.y, false);
 
         // Track that player has moved (for idle menu logic)
         if (moved) {
@@ -773,11 +756,8 @@ class Player {
         }
 
         // Start music on first movement
-        if (moved && !gameState.musicStarted) {
-            gameState.musicStarted = true;
-            bgMusic.play().catch(err => {
-                gameState.musicStarted = false; // Allow retry on error
-            });
+        if (moved) {
+            tryStartMusic();
         }
 
         // Collision detection with buildings
@@ -861,8 +841,7 @@ class Player {
         const centerY = this.y + this.height / 2;
         const objCenterX = obj.x + obj.width / 2;
         const objCenterY = obj.y + obj.height / 2;
-        const dist = Math.sqrt((centerX - objCenterX) ** 2 + (centerY - objCenterY) ** 2);
-        return dist < distance;
+        return getDistance(centerX, centerY, objCenterX, objCenterY) < distance;
     }
 
     shootMagic(targetX, targetY) {
@@ -885,9 +864,7 @@ class Player {
             let closestDist = Infinity;
 
             for (let firefly of gameState.fireflies) {
-                const dx = firefly.x - playerCenterX;
-                const dy = firefly.y - playerCenterY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                const dist = getDistance(firefly.x, firefly.y, playerCenterX, playerCenterY);
 
                 if (dist < closestDist) {
                     closestDist = dist;
@@ -903,9 +880,9 @@ class Player {
             for (let chest of gameState.chests) {
                 if (chest.opened) continue; // Skip opened chests
 
-                const dx = chest.x + chest.width / 2 - playerCenterX;
-                const dy = chest.y + chest.height / 2 - playerCenterY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                const chestCenterX = chest.x + chest.width / 2;
+                const chestCenterY = chest.y + chest.height / 2;
+                const dist = getDistance(chestCenterX, chestCenterY, playerCenterX, playerCenterY);
 
                 if (dist < closestDist) {
                     closestDist = dist;
@@ -925,23 +902,9 @@ class Player {
         ));
     }
 
-    takeDamage(amount) {
-        this.health = Math.max(0, this.health - amount);
-        if (this.health === 0) {
-            // Game over logic
-            alert('Game Over! You were defeated.');
-            location.reload();
-        }
-    }
-
-    heal(amount) {
-        this.health = Math.min(this.maxHealth, this.health + amount);
-    }
-
-    activateSpeedBoost(duration = 5000, multiplier = 1.5, color = '#FFD700') {
+    activateSpeedBoost(duration = 5000, multiplier = 1.5) {
         this.speed = this.baseSpeed * multiplier;
         this.speedBoostEndTime = Date.now() + duration;
-        this.speedBoostColor = color; // Store the color for HUD pulse
     }
 
     transform() {
@@ -959,6 +922,28 @@ class Player {
         }
     }
 
+    // Get the appropriate cat sprite based on current state
+    getCatSprite() {
+        if (this.isMoving) {
+            return this.walkingFrame === 0 ? catWalking1 : catWalking2;
+        } else if (this.idleAnimationType === 'sleep') {
+            return catSleeping;
+        } else if (this.idleAnimationType === 'yawn') {
+            return catYawning;
+        } else if (this.idleAnimationType === 'lick') {
+            return catLickingPaw;
+        }
+        return catImage; // Default idle
+    }
+
+    // Get the appropriate girl sprite based on current state
+    getGirlSprite() {
+        if (this.isMoving) {
+            return this.walkingFrame === 0 ? girlWalking1 : girlWalking2;
+        }
+        return girlWalking1; // Default idle uses walking1
+    }
+
     drawHuman(ctx, x, y) {
         // Girl-walking images are 590x1024 (aspect ratio ~0.576)
         // Adjust rendered size to match this ratio to avoid stretching
@@ -971,21 +956,12 @@ class Player {
         ctx.ellipse(x + girlWidth/2, y + girlHeight - 5, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Always use walking sprites (alternate for idle, animate when moving)
-        let girlSprite = girlWalking1; // Default idle uses walking1
-        if (this.isMoving) {
-            girlSprite = this.walkingFrame === 0 ? girlWalking1 : girlWalking2;
-        }
+        const girlSprite = this.getGirlSprite();
 
         // Draw girl sprite with optional flip and purple glow at night
         if (girlSprite.complete) {
             ctx.save();
-
-            // Add purple glow at night
-            if (gameState.isNight) {
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = '#9370DB'; // Medium purple
-            }
+            applyNightGlow(ctx);
 
             if (this.facingRight) {
                 // Flip horizontally for right-facing
@@ -1003,33 +979,12 @@ class Player {
 
     drawCat(ctx, x, y) {
         // No shadow for cat form (cat sprites have their own shadows or don't need them)
-
-        // Choose the appropriate sprite based on movement and idle animations
-        let catSprite = catImage; // Default idle
-
-        if (this.isMoving) {
-            // Walking animation
-            catSprite = this.walkingFrame === 0 ? catWalking1 : catWalking2;
-        } else if (this.idleAnimationType === 'sleep') {
-            // Sleeping idle animation
-            catSprite = catSleeping;
-        } else if (this.idleAnimationType === 'yawn') {
-            // Yawning idle animation
-            catSprite = catYawning;
-        } else if (this.idleAnimationType === 'lick') {
-            // Licking paw idle animation
-            catSprite = catLickingPaw;
-        }
+        const catSprite = this.getCatSprite();
 
         // Draw cat sprite with optional flip and purple glow at night
         if (catSprite.complete) {
             ctx.save();
-
-            // Add purple glow at night
-            if (gameState.isNight) {
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = '#9370DB'; // Medium purple
-            }
+            applyNightGlow(ctx);
 
             if (this.facingRight) {
                 // Flip horizontally for right-facing
@@ -1042,134 +997,6 @@ class Player {
             }
 
             ctx.restore();
-        }
-    }
-}
-
-class Enemy {
-    constructor(x, y, type = 'slime') {
-        this.x = x;
-        this.y = y;
-        this.width = 48;
-        this.height = 48;
-        this.type = type;
-        this.health = 30;
-        this.maxHealth = 30;
-        this.speed = CONFIG.ENEMY_SPEED;
-        this.detectionRange = 200;
-        this.attackRange = 35;
-        this.attackCooldown = 2000;
-        this.lastAttackTime = 0;
-        this.bounceOffset = 0;
-    }
-
-    update() {
-        if (!gameState.player) return;
-
-        const player = gameState.player;
-
-        // Don't attack if player is a cat
-        if (player.isCat) return;
-
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        // Chase player if in range
-        if (distance < this.detectionRange) {
-            const angle = Math.atan2(dy, dx);
-            const speed = gameState.isNight ? this.speed * CONFIG.NIGHT_ENEMY_SPEED_MULTIPLIER : this.speed;
-
-            this.x += Math.cos(angle) * speed;
-            this.y += Math.sin(angle) * speed;
-
-            // Attack if close enough
-            if (distance < this.attackRange) {
-                const now = Date.now();
-                if (now - this.lastAttackTime > this.attackCooldown) {
-                    player.takeDamage(5);
-                    this.lastAttackTime = now;
-                }
-            }
-        }
-
-        this.bounceOffset = Math.sin(Date.now() / 200) * 3;
-    }
-
-    takeDamage(amount) {
-        this.health -= amount;
-        if (this.health <= 0) {
-            this.die();
-        }
-    }
-
-    die() {
-        // Drop Cat Cash
-        const cashAmount = 10 + Math.floor(Math.random() * 10);
-        gameState.catCash += cashAmount;
-        updateUI();
-
-        // Remove from enemies array
-        const index = gameState.enemies.indexOf(this);
-        if (index > -1) {
-            gameState.enemies.splice(index, 1);
-        }
-
-        // Spawn particles
-        for (let i = 0; i < 10; i++) {
-            gameState.particles.push(new Particle(
-                this.x + this.width / 2,
-                this.y + this.height / 2,
-                Math.random() * Math.PI * 2
-            ));
-        }
-    }
-
-    draw(ctx) {
-        const screenX = this.x - gameState.camera.x;
-        const screenY = this.y - gameState.camera.y + this.bounceOffset;
-
-        // Shadow
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.beginPath();
-        ctx.ellipse(screenX + 15, screenY + 32, 10, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Body (slime-like enemy)
-        const gradient = ctx.createRadialGradient(screenX + 15, screenY + 15, 5, screenX + 15, screenY + 15, 15);
-
-        if (gameState.isNight) {
-            gradient.addColorStop(0, '#8B00FF');
-            gradient.addColorStop(1, '#4B0082');
-        } else {
-            gradient.addColorStop(0, '#32CD32');
-            gradient.addColorStop(1, '#228B22');
-        }
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.ellipse(screenX + 15, screenY + 15, 15, 12, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Eyes
-        ctx.fillStyle = '#FFF';
-        ctx.beginPath();
-        ctx.arc(screenX + 10, screenY + 12, 4, 0, Math.PI * 2);
-        ctx.arc(screenX + 20, screenY + 12, 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.arc(screenX + 11, screenY + 13, 2, 0, Math.PI * 2);
-        ctx.arc(screenX + 21, screenY + 13, 2, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Health bar
-        if (this.health < this.maxHealth) {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(screenX, screenY - 5, 30, 3);
-            ctx.fillStyle = '#FF0000';
-            ctx.fillRect(screenX, screenY - 5, 30 * (this.health / this.maxHealth), 3);
         }
     }
 }
@@ -1195,14 +1022,23 @@ class Companion {
         this.spawnDuration = spawnDuration; // How long the spawn animation lasts
         this.gravity = 0.3; // Gravity for spawn animation
         this.hasJoinedLine = !this.isSpawning; // False for spawning companions, true for placed/loaded ones
+        // House interior position (set when entering house)
+        this.houseX = 0;
+        this.houseY = 0;
+        this.houseTargetX = 0;
+        this.houseTargetY = 0;
     }
 
-    update() {
+    update(followPosition = 0) {
         if (!gameState.player) return;
+
+        const dt = gameState.deltaTime || 16; // Fallback to 16ms if not set
+        // bobOffset rate: 0.006 rad/ms = ~1 cycle per second (was 0.1 per frame at 60fps)
+        const bobRate = 0.006;
 
         // Handle spawn animation
         if (this.isSpawning) {
-            const elapsed = Date.now() - this.spawnTime;
+            const elapsed = gameState.frameTime - this.spawnTime;
 
             if (elapsed < this.spawnDuration) {
                 // Apply physics: velocity and gravity
@@ -1219,7 +1055,7 @@ class Companion {
                 this.velocityX = 0;
                 this.velocityY = 0;
             }
-            this.bobOffset += 0.1;
+            this.bobOffset += bobRate * dt;
             return; // Skip normal following behavior during spawn
         }
 
@@ -1228,7 +1064,7 @@ class Companion {
             // Move toward ring position
             const dx = this.targetX - this.x;
             const dy = this.targetY - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = getDistance(this.targetX, this.targetY, this.x, this.y);
 
             if (distance > 5) { // Close enough threshold
                 const angle = Math.atan2(dy, dx);
@@ -1237,32 +1073,38 @@ class Companion {
             }
         } else {
             // Follow player with some distance
-            const targetDist = 50 + gameState.companions.indexOf(this) * 30;
-            const dx = gameState.player.x - this.x;
-            const dy = gameState.player.y - this.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            // Determine what to follow: companion 0 follows player, others follow companion ahead
+            let targetX, targetY;
+            if (followPosition === 0) {
+                targetX = gameState.player.x;
+                targetY = gameState.player.y;
+            } else {
+                const ahead = gameState.companions[followPosition - 1];
+                targetX = ahead.x;
+                targetY = ahead.y;
+            }
 
-            // If companion hasn't joined the line yet, always move toward player
-            // This prevents newly spawned companions from sitting still when line is long
-            if (!this.hasJoinedLine) {
-                if (distance <= targetDist + 50) {
-                    // Close enough to the line, mark as joined
-                    this.hasJoinedLine = true;
-                } else {
-                    // Keep moving toward player at double speed to catch up quickly
-                    const angle = Math.atan2(dy, dx);
-                    this.x += Math.cos(angle) * this.speed * 1.5;
-                    this.y += Math.sin(angle) * this.speed * 1.5;
-                }
-            } else if (distance > targetDist) {
-                // Normal following behavior once in line
-                const angle = Math.atan2(dy, dx);
-                this.x += Math.cos(angle) * this.speed;
-                this.y += Math.sin(angle) * this.speed;
+            const dxTarget = targetX - this.x;
+            const dyTarget = targetY - this.y;
+            const distToTarget = Math.sqrt(dxTarget * dxTarget + dyTarget * dyTarget);
+            // First companion stays further from player, others stay closer to each other
+            const followDist = (followPosition === 0) ? 50 : 30;
+
+            // Move toward target if too far
+            if (distToTarget > followDist + 5) {
+                const angle = Math.atan2(dyTarget, dxTarget);
+                const speed = this.hasJoinedLine ? this.speed : this.speed * 1.5;
+                this.x += Math.cos(angle) * speed;
+                this.y += Math.sin(angle) * speed;
+            }
+
+            // Mark as joined once close enough to target
+            if (!this.hasJoinedLine && distToTarget <= followDist + 20) {
+                this.hasJoinedLine = true;
             }
         }
 
-        this.bobOffset += 0.1;
+        this.bobOffset += bobRate * dt;
     }
 
     draw(ctx) {
@@ -1270,35 +1112,16 @@ class Companion {
         const screenY = this.y - gameState.camera.y + Math.sin(this.bobOffset) * 2;
 
         // Shadow (scaled with companion size)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.beginPath();
-        ctx.ellipse(
-            screenX + (20 * this.sizeMultiplier),
-            screenY + (35 * this.sizeMultiplier),
-            8 * this.sizeMultiplier,
-            2 * this.sizeMultiplier,
-            0, 0, Math.PI * 2
-        );
-        ctx.fill();
+        drawCompanionShadow(ctx, screenX, screenY, this.sizeMultiplier);
 
         // Draw friend image with colored glow at night
         const image = friendImages[this.type];
         if (image && image.complete) {
             if (gameState.isNight) {
-                // Assign glow color based on companion type
-                const glowColors = {
-                    kitten1: '#FFA500',  // Orange
-                    kitten2: '#FFA500',  // Orange
-                    kitten3: '#FFA500',  // Orange
-                    frog: '#32CD32',     // Lime green
-                    squirrel: '#D2691E', // Chocolate brown
-                    puppy: '#DAA520',    // Goldenrod
-                    bunny: '#FFB6C1'     // Light pink
-                };
-
+                // Apply glow effect at night
                 ctx.save();
                 ctx.shadowBlur = 15 * this.sizeMultiplier;
-                ctx.shadowColor = glowColors[this.type] || '#FFFFFF'; // Default white
+                ctx.shadowColor = COMPANION_GLOW_COLORS[this.type] || '#FFFFFF'; // Default white
                 ctx.drawImage(image, screenX, screenY, this.width, this.height);
                 ctx.restore();
             } else {
@@ -1315,7 +1138,6 @@ class Projectile {
         this.angle = angle;
         this.speed = 8;
         this.radius = 6;
-        this.damage = 15;
         this.lifetime = 2000;
         this.createdAt = Date.now();
         this.target = target; // Can be firefly or chest
@@ -1343,7 +1165,7 @@ class Projectile {
             const dx = targetX - this.x;
             const dy = targetY - this.y;
             this.angle = Math.atan2(dy, dx);
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const dist = getDistance(targetX, targetY, this.x, this.y);
 
             // Check collision
             if (dist < 20) {
@@ -1373,49 +1195,21 @@ class Projectile {
         this.x += Math.cos(this.angle) * this.speed;
         this.y += Math.sin(this.angle) * this.speed;
 
-        // Check collision with enemies
-        for (let enemy of gameState.enemies) {
-            if (this.intersects(enemy)) {
-                enemy.takeDamage(this.damage);
-                return true; // Mark for removal
-            }
-        }
-
         // Remove if lifetime exceeded
-        if (Date.now() - this.createdAt > this.lifetime) {
+        if (gameState.frameTime - this.createdAt > this.lifetime) {
             return true;
         }
 
         return false;
     }
 
-    intersects(enemy) {
-        const dx = this.x - (enemy.x + enemy.width / 2);
-        const dy = this.y - (enemy.y + enemy.height / 2);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        return distance < this.radius + enemy.width / 2;
-    }
-
     draw(ctx) {
         const screenX = this.x - gameState.camera.x;
         const screenY = this.y - gameState.camera.y;
 
-        // Magic projectile
-        const gradient = ctx.createRadialGradient(screenX, screenY, 0, screenX, screenY, this.radius);
-        gradient.addColorStop(0, '#00FFFF');
-        gradient.addColorStop(0.5, '#0088FF');
-        gradient.addColorStop(1, '#0044FF');
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Glow effect
-        ctx.fillStyle = 'rgba(0, 200, 255, 0.3)';
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, this.radius + 3, 0, Math.PI * 2);
-        ctx.fill();
+        // Draw pre-rendered projectile sprite (includes gradient and glow)
+        const halfSize = projectileSprite.width / 2;
+        ctx.drawImage(projectileSprite, screenX - halfSize, screenY - halfSize);
     }
 }
 
@@ -1462,26 +1256,22 @@ class Item {
         this.width = 32;
         this.height = 32;
         this.type = type; // 'apple', 'orange', 'berry'
-        this.healAmount = type === 'apple' ? 20 : type === 'orange' ? 15 : 10;
         this.bobOffset = Math.random() * Math.PI * 2;
     }
 
     update() {
-        this.bobOffset += 0.05;
+        const dt = gameState.deltaTime || 16;
+        // bobOffset rate: 0.003 rad/ms = ~0.5 cycle per second (was 0.05 per frame at 60fps)
+        this.bobOffset += 0.003 * dt;
 
         // Check if player is near
         if (gameState.player && this.isNear(gameState.player, 30)) {
-            gameState.player.heal(this.healAmount);
-
-            // Activate speed boost when eating food with heart color
-            const heartColor = this.type === 'apple' ? '#FF1493' : this.type === 'orange' ? '#FF69B4' : '#FFB6C1';
-            gameState.player.activateSpeedBoost(5000, 1.5, heartColor); // 5 seconds, 1.5x speed
+            // Activate speed boost when eating food
+            gameState.player.activateSpeedBoost(5000, 1.5); // 5 seconds, 1.5x speed
 
             // Gain XP for picking up hearts
             const xpAmount = this.type === 'apple' ? 10 : this.type === 'orange' ? 7 : 5;
             gainXP(xpAmount);
-
-            updateUI();
 
             // Remove item
             const index = gameState.items.indexOf(this);
@@ -1492,9 +1282,7 @@ class Item {
     }
 
     isNear(player, distance) {
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
-        return Math.sqrt(dx * dx + dy * dy) < distance;
+        return isNearPoint(this.x, this.y, player.x, player.y, distance);
     }
 
     draw(ctx) {
@@ -1554,13 +1342,10 @@ class Chest {
         // Calculate tier based on distance from center (every 2000 units = new tier)
         this.tier = Math.min(Math.floor(distanceFromCenter / 2000), 4); // Max tier 4
 
-        // Assign color based on tier
+        // Assign color based on tier (using CHEST_CONFIG)
         const tierColors = ['purple', 'green', 'blue', 'red', 'magenta'];
         this.color = tierColors[this.tier];
-
-        // Glow colors for each tier (used at night)
-        const glowColors = ['#9370DB', '#FFD700', '#0000FF', '#FF0000', '#9370DB'];
-        this.glowColor = glowColors[this.tier];
+        this.glowColor = CHEST_CONFIG[this.color].glow;
 
         // Size: basic chests are always size 1.0, firefly chests are always larger
         const baseWidth = 72;
@@ -1616,10 +1401,6 @@ class Chest {
             this.companionCount = Math.floor(Math.random() * 5) + 3; // 3-7 companions
             this.companionSizeMultiplier = 2.0; // 2x sized companions
         }
-    }
-
-    update() {
-        // Chest opening is now handled by handleInteractions()
     }
 
     canOpen() {
@@ -1697,14 +1478,8 @@ class Chest {
             ));
         }
 
-        // Award Cat Cash for freeing friends (more for bigger chests)
-        const cashAmount = (15 + Math.floor(Math.random() * 10)) * this.companionCount;
-        gameState.catCash += cashAmount;
-
         // Gain XP for freeing friends (more for bigger chests)
         gainXP(25 * this.companionCount);
-
-        updateUI();
 
         // More particles for bigger chests
         const particleCount = 20 * this.sizeMultiplier;
@@ -1832,9 +1607,7 @@ class Chest {
     }
 
     isNear(player, distance) {
-        const dx = player.x - this.x;
-        const dy = player.y - this.y;
-        return Math.sqrt(dx * dx + dy * dy) < distance;
+        return isNearPoint(this.x, this.y, player.x, player.y, distance);
     }
 
     draw(ctx) {
@@ -1895,79 +1668,20 @@ class Chest {
         const screenX = this.x - gameState.camera.x;
         const screenY = this.y - gameState.camera.y;
 
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 14px Arial';
+        const centerX = screenX + this.width / 2;
 
         if (this.fireflyCost > 0) {
             // Large chest - show firefly requirement
             const canOpen = this.canOpen();
-            const text1 = `${this.fireflyCost} Fireflies`;
-            const text2 = canOpen ? 'Press E to open' : 'Need more fireflies';
-
-            // Measure both texts to get max width
-            const text1Width = ctx.measureText(text1).width;
-            const text2Width = ctx.measureText(text2).width;
-            const maxWidth = Math.max(text1Width, text2Width);
-
-            // HUD-style frame
-            const frameX = screenX + this.width / 2 - maxWidth / 2 - 10;
-            const frameY = screenY - 50;
-            const frameWidth = maxWidth + 20;
-            const frameHeight = 40;
-            const cornerRadius = 8;
-
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.fill();
-
-            // Border (gold if can open, red if cannot)
-            ctx.strokeStyle = canOpen ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.stroke();
-
-            // Firefly count text
-            ctx.fillStyle = canOpen ? '#00FF00' : '#FF0000';
-            ctx.fillText(text1, screenX + this.width / 2, screenY - 36);
-
-            // Action text
-            ctx.fillStyle = canOpen ? '#FFF' : '#AAA';
-            ctx.fillText(text2, screenX + this.width / 2, screenY - 24);
+            const borderColor = canOpen ? 'rgba(255, 215, 0, 0.8)' : 'rgba(255, 0, 0, 0.8)';
+            drawHudPopup(ctx, centerX, screenY, [
+                { text: `${this.fireflyCost} Fireflies`, color: canOpen ? '#00FF00' : '#FF0000' },
+                { text: canOpen ? 'Press E to open' : 'Need more fireflies', color: canOpen ? '#FFF' : '#AAA' }
+            ], { borderColor, cornerRadius: 8 });
         } else {
             // Small chest - free to open with E
-            const text = 'Press E to Open';
-            const textWidth = ctx.measureText(text).width;
-
-            // HUD-style frame
-            const frameX = screenX + this.width / 2 - textWidth / 2 - 10;
-            const frameY = screenY - 30;
-            const frameWidth = textWidth + 20;
-            const frameHeight = 24;
-            const cornerRadius = 6;
-
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.fill();
-
-            // Border (gold)
-            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.stroke();
-
-            // Text
-            ctx.fillStyle = '#FFF';
-            ctx.fillText(text, screenX + this.width / 2, screenY - 18);
+            drawHudPopup(ctx, centerX, screenY, ['Press E to Open']);
         }
-
-        ctx.restore();
     }
 }
 
@@ -2041,9 +1755,9 @@ class Village {
 
                 // Check distance from buildings (prevent tree/house overlap)
                 for (let building of this.buildings) {
-                    const dx = x - (building.x + building.width / 2);
-                    const dy = y - (building.y + building.height / 2);
-                    if (Math.sqrt(dx * dx + dy * dy) < 160) { // Increased from 120 to prevent overlap
+                    const buildingCenterX = building.x + building.width / 2;
+                    const buildingCenterY = building.y + building.height / 2;
+                    if (getDistance(x, y, buildingCenterX, buildingCenterY) < 160) {
                         validPosition = false;
                         break;
                     }
@@ -2053,9 +1767,7 @@ class Village {
                 if (validPosition && this.catFountain) {
                     const fountainCenterX = this.catFountain.x + this.catFountain.width / 2;
                     const fountainCenterY = this.catFountain.y + this.catFountain.height / 2;
-                    const dx = x - fountainCenterX;
-                    const dy = y - fountainCenterY;
-                    if (Math.sqrt(dx * dx + dy * dy) < 300) {
+                    if (getDistance(x, y, fountainCenterX, fountainCenterY) < 300) {
                         validPosition = false;
                     }
                 }
@@ -2063,9 +1775,7 @@ class Village {
                 // Check distance from other trees to prevent overlap
                 if (validPosition) {
                     for (let tree of this.trees) {
-                        const dx = x - tree.x;
-                        const dy = y - tree.y;
-                        if (Math.sqrt(dx * dx + dy * dy) < 80) { // Minimum distance between trees
+                        if (getDistance(x, y, tree.x, tree.y) < 80) {
                             validPosition = false;
                             break;
                         }
@@ -2105,9 +1815,9 @@ class Village {
             // Check distance from all buildings to prevent overlap
             let tooCloseToBuilding = false;
             for (let building of this.buildings) {
-                const dx = x - (building.x + building.width / 2);
-                const dy = y - (building.y + building.height / 2);
-                if (Math.sqrt(dx * dx + dy * dy) < 160) { // Increased from 120 to prevent overlap
+                const buildingCenterX = building.x + building.width / 2;
+                const buildingCenterY = building.y + building.height / 2;
+                if (getDistance(x, y, buildingCenterX, buildingCenterY) < 160) {
                     tooCloseToBuilding = true;
                     break;
                 }
@@ -2121,9 +1831,7 @@ class Village {
             if (this.catFountain) {
                 const fountainCenterX = this.catFountain.x + this.catFountain.width / 2;
                 const fountainCenterY = this.catFountain.y + this.catFountain.height / 2;
-                const dx = x - fountainCenterX;
-                const dy = y - fountainCenterY;
-                if (Math.sqrt(dx * dx + dy * dy) < 300) {
+                if (getDistance(x, y, fountainCenterX, fountainCenterY) < 300) {
                     continue;
                 }
             }
@@ -2131,9 +1839,7 @@ class Village {
             // Check distance from other trees to prevent overlap
             let tooCloseToTree = false;
             for (let tree of this.trees) {
-                const dx = x - tree.x;
-                const dy = y - tree.y;
-                if (Math.sqrt(dx * dx + dy * dy) < 80) { // Minimum distance between trees
+                if (getDistance(x, y, tree.x, tree.y) < 80) {
                     tooCloseToTree = true;
                     break;
                 }
@@ -2144,9 +1850,7 @@ class Village {
             }
 
             // Calculate distance from village center
-            const dx = x - this.villageCenterX;
-            const dy = y - this.villageCenterY;
-            const distanceFromVillage = Math.sqrt(dx * dx + dy * dy);
+            const distanceFromVillage = getDistance(x, y, this.villageCenterX, this.villageCenterY);
 
             // Calculate spawn probability based on distance
             // Close to village: 15% chance
@@ -2169,47 +1873,15 @@ class Village {
         }
     }
 
-    draw(ctx) {
-        // Draw ground with tiled pattern
-        const grassPattern = this.createGrassPattern(ctx);
-        if (grassPattern && grassPattern !== '#2d5016') {
-            // Draw tiled grass pattern that stays fixed in world space
-            ctx.save();
-            // Translate to align pattern with world coordinates
-            const offsetX = -gameState.camera.x % grassTileImage.width;
-            const offsetY = -gameState.camera.y % grassTileImage.height;
-            ctx.translate(offsetX, offsetY);
-            ctx.fillStyle = grassPattern;
-            ctx.fillRect(
-                -offsetX,
-                -offsetY,
-                canvas.width - offsetX + grassTileImage.width,
-                canvas.height - offsetY + grassTileImage.height
-            );
-            ctx.restore();
-        } else {
-            // Fallback solid color
-            ctx.fillStyle = '#2d5016';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-
-        // Draw cat fountain
-        if (this.catFountain && catFountainImage.complete) {
-            const screenX = this.catFountain.x - gameState.camera.x;
-            const screenY = this.catFountain.y - gameState.camera.y;
-            ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
-        }
-
-        // Draw buildings
-        for (let building of this.buildings) {
-            this.drawBuilding(ctx, building);
-        }
-    }
+    // Rendering is split into separate methods for night overlay layering:
+    // - drawGround(ctx): Background grass (darkened at night)
+    // - drawBuildings(ctx): Fountain + houses (glow at night)
+    // - drawTree(ctx, tree): Individual trees (drawn on top)
 
     // Draw only the ground (before night overlay)
     drawGround(ctx) {
         const grassPattern = this.createGrassPattern(ctx);
-        if (grassPattern && grassPattern !== '#2d5016') {
+        if (grassPattern) {
             ctx.save();
             // Disable image smoothing to prevent seams between tiles
             ctx.imageSmoothingEnabled = false;
@@ -2258,12 +1930,14 @@ class Village {
     }
 
     createGrassPattern(ctx) {
-        // Use grass tile image as repeating pattern
-        if (grassTileImage && grassTileImage.complete) {
-            return ctx.createPattern(grassTileImage, 'repeat');
+        // Return cached pattern if available
+        if (cachedGrassPattern) {
+            return cachedGrassPattern;
         }
-        // Fallback to solid color if image not loaded
-        return '#2d5016';
+
+        // Create and cache the pattern (image guaranteed loaded before game starts)
+        cachedGrassPattern = ctx.createPattern(grassTileImage, 'repeat');
+        return cachedGrassPattern;
     }
 
     drawTree(ctx, tree) {
@@ -2333,40 +2007,9 @@ class Village {
         }
 
         // Show interaction hint for ALL houses
-        const canEnter = Date.now() - gameState.lastHouseExitTime > 500;
+        const canEnter = gameState.frameTime - gameState.lastHouseExitTime > 500;
         if (gameState.player && this.isNear(gameState.player, building, 150) && canEnter) {
-            ctx.save();
-            ctx.font = 'bold 12px Arial';
-            ctx.textAlign = 'center';
-
-            const text = 'Press E to Enter';
-            const textWidth = ctx.measureText(text).width;
-
-            // HUD-style frame
-            const frameX = screenX + building.width / 2 - textWidth / 2 - 10;
-            const frameY = screenY - 30;
-            const frameWidth = textWidth + 20;
-            const frameHeight = 24;
-            const cornerRadius = 6;
-
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.fill();
-
-            // Border (gold)
-            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.roundRect(frameX, frameY, frameWidth, frameHeight, cornerRadius);
-            ctx.stroke();
-
-            // Text
-            ctx.fillStyle = '#FFF';
-            ctx.fillText(text, screenX + building.width / 2, screenY - 18);
-
-            ctx.restore();
+            drawHudPopup(ctx, screenX + building.width / 2, screenY, ['Press E to Enter'], { font: 'bold 12px Arial' });
         }
     }
 
@@ -2375,8 +2018,7 @@ class Village {
         const centerY = player.y + player.height / 2;
         const buildingCenterX = building.x + building.width / 2;
         const buildingCenterY = building.y + building.height / 2;
-        const dist = Math.sqrt((centerX - buildingCenterX) ** 2 + (centerY - buildingCenterY) ** 2);
-        return dist < distance;
+        return getDistance(centerX, centerY, buildingCenterX, buildingCenterY) < distance;
     }
 }
 
@@ -2504,6 +2146,12 @@ fireflyImage.src = 'graphics/fireflies/ChatGPT Image Nov 14, 2025, 11_25_29 PM.p
 // Cache for hue-rotated firefly images (to avoid expensive filter operations every frame)
 const fireflyImageCache = {};
 
+// Cache for grass pattern (to avoid creating new pattern every frame)
+let cachedGrassPattern = null;
+
+// Cache for minimap legend bounds (to avoid recreating every frame)
+let cachedMinimapLegendBounds = null;
+
 // Get a cached hue-rotated firefly image (creates if doesn't exist)
 function getCachedFireflyImage(hue, size) {
     const cacheKey = `${hue}_${size}`;
@@ -2535,6 +2183,62 @@ function getCachedFireflyImage(hue, size) {
     return offscreen;
 }
 
+// Cache for firefly sprites with pre-rendered glow
+const fireflyGlowCache = {};
+
+// Get a cached firefly image WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedFireflyWithGlow(hue, size) {
+    const cacheKey = `glow_${hue}_${size}`;
+
+    if (fireflyGlowCache[cacheKey]) {
+        return fireflyGlowCache[cacheKey];
+    }
+
+    // Glow extends beyond sprite, so canvas needs padding
+    const glowPadding = 25; // Enough for shadowBlur of 20
+    const canvasSize = size + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasSize;
+    offscreen.height = canvasSize;
+    const offCtx = offscreen.getContext('2d');
+
+    // Calculate glow color from hue
+    let glowColor = '#FFFF00'; // Default yellow
+    if (hue > 0) {
+        const totalHue = (60 + hue) % 360;
+        const h = totalHue / 60;
+        const x = 1 - Math.abs((h % 2) - 1);
+        let r, g, b;
+        if (h < 1) { r = 1; g = x; b = 0; }
+        else if (h < 2) { r = x; g = 1; b = 0; }
+        else if (h < 3) { r = 0; g = 1; b = x; }
+        else if (h < 4) { r = 0; g = x; b = 1; }
+        else if (h < 5) { r = x; g = 0; b = 1; }
+        else { r = 1; g = 0; b = x; }
+        glowColor = `rgb(${Math.round(r*255)}, ${Math.round(g*255)}, ${Math.round(b*255)})`;
+    }
+
+    // Get the base firefly image (hue-rotated if needed)
+    const baseImg = hue > 0 ? getCachedFireflyImage(hue, size) : fireflyImage;
+
+    // Draw with glow effect baked in (two passes for stronger glow)
+    offCtx.shadowBlur = 20;
+    offCtx.shadowColor = glowColor;
+    offCtx.drawImage(baseImg, glowPadding, glowPadding, size, size);
+    offCtx.shadowBlur = 15;
+    offCtx.drawImage(baseImg, glowPadding, glowPadding, size, size);
+
+    // Reset shadow
+    offCtx.shadowBlur = 0;
+
+    // Cache the result
+    fireflyGlowCache[cacheKey] = { canvas: offscreen, padding: glowPadding };
+
+    return fireflyGlowCache[cacheKey];
+}
+
 // Load firefly jar images
 const emptyJarImage = new Image();
 emptyJarImage.src = 'graphics/fireflies/empty-jar.png';
@@ -2550,14 +2254,93 @@ catFountainImage.src = 'graphics/cat/cat-fountain.png';
 const titleImage = new Image();
 titleImage.src = 'graphics/title.png';
 
+// Pre-rendered projectile sprite (cached for performance)
+let projectileSprite = null;
+
+// Cached HUD gradients (performance optimization)
+let cachedRainbowGradient = null;
+let cachedXpGradient = null;
+let cachedHueSliderGradient = null;
+let cachedSizeSliderGradient = null;
+
 let imagesLoaded = 0;
-const totalImages = 45; // 2 girl walking, cat, 2 cat walking, 3 cat idle animations (yawn/lick/sleep), 8 houses, 7 friends, 6 furniture, 10 chests (purple/green/blue/red/magenta × 2 states), 3 trees, 1 grass tile, 1 floorboards, 1 firefly, 2 jars, 1 cat fountain, 1 title
+const totalImages = 49; // 2 girl walking + 1 cat + 2 cat walking + 3 cat idle (8), 8 houses (4×2), 7 friends, 6 furniture, 10 chests (5×2), 3 trees, 1 grass, 1 floorboards, 1 firefly, 2 jars, 1 fountain, 1 title = 49
 
 function checkImagesLoaded() {
     if (imagesLoaded === totalImages) {
+        // Initialize cached sprites and gradients before starting game
+        initProjectileSprite();
+        initCachedGradients();
         // Start game automatically when images are ready
         startGame();
     }
+}
+
+// Initialize pre-rendered projectile sprite for performance
+function initProjectileSprite() {
+    const radius = 6;  // Match Projectile.radius
+    const glowRadius = radius + 3;
+    const size = (glowRadius + 2) * 2;  // Diameter plus padding
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = size;
+    offscreen.height = size;
+    const offCtx = offscreen.getContext('2d');
+
+    const centerX = size / 2;
+    const centerY = size / 2;
+
+    // Draw outer glow first (behind the main projectile)
+    offCtx.fillStyle = 'rgba(0, 200, 255, 0.3)';
+    offCtx.beginPath();
+    offCtx.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
+    offCtx.fill();
+
+    // Draw gradient core
+    const gradient = offCtx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+    gradient.addColorStop(0, '#00FFFF');
+    gradient.addColorStop(0.5, '#0088FF');
+    gradient.addColorStop(1, '#0044FF');
+    offCtx.fillStyle = gradient;
+    offCtx.beginPath();
+    offCtx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    offCtx.fill();
+
+    projectileSprite = offscreen;
+}
+
+// Initialize cached gradients for HUD elements (performance optimization)
+function initCachedGradients() {
+    // HUD constants (must match values in game loop HUD drawing)
+    const hudX = 20, hudY = 20, hudWidth = 100;
+    const barX = hudX + 10, barY = hudY + 35, barWidth = 80;
+
+    // Rainbow gradient for HUD border (fixed position)
+    cachedRainbowGradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
+    cachedRainbowGradient.addColorStop(0, '#FF0000');
+    cachedRainbowGradient.addColorStop(0.16, '#FF7F00');
+    cachedRainbowGradient.addColorStop(0.33, '#FFFF00');
+    cachedRainbowGradient.addColorStop(0.5, '#00FF00');
+    cachedRainbowGradient.addColorStop(0.66, '#0000FF');
+    cachedRainbowGradient.addColorStop(0.83, '#4B0082');
+    cachedRainbowGradient.addColorStop(1, '#9400D3');
+
+    // XP bar gradient (full width, will be clipped by fillRect)
+    cachedXpGradient = ctx.createLinearGradient(barX, barY, barX + barWidth, barY);
+    cachedXpGradient.addColorStop(0, '#4169E1');
+    cachedXpGradient.addColorStop(1, '#1E90FF');
+
+    // Furniture shop hue slider gradient (sliderWidth = itemWidth - 20 = 90)
+    // Uses 0-based coordinates; positioned via save/translate/restore
+    cachedHueSliderGradient = ctx.createLinearGradient(0, 0, 90, 0);
+    for (let h = 0; h <= 360; h += 60) {
+        cachedHueSliderGradient.addColorStop(h / 360, `hsl(${h}, 80%, 50%)`);
+    }
+
+    // Furniture shop size slider gradient (sliderWidth = 90)
+    cachedSizeSliderGradient = ctx.createLinearGradient(0, 0, 90, 0);
+    cachedSizeSliderGradient.addColorStop(0, '#666');
+    cachedSizeSliderGradient.addColorStop(1, '#FFF');
 }
 
 // Helper function to handle both successful loads and errors
@@ -2566,148 +2349,77 @@ function imageLoadHandler() {
     checkImagesLoaded();
 }
 
-girlWalking1.onload = imageLoadHandler;
-girlWalking1.onerror = () => { console.error('Failed to load girl-walking1.png'); imageLoadHandler(); };
+// Setup image load/error handlers with automatic error logging
+function setupImageHandlers(image, name) {
+    image.onload = imageLoadHandler;
+    image.onerror = () => {
+        console.error(`Failed to load ${name}`);
+        imageLoadHandler();
+    };
+}
 
-girlWalking2.onload = imageLoadHandler;
-girlWalking2.onerror = () => { console.error('Failed to load girl-walking2.png'); imageLoadHandler(); };
+// Player sprites
+setupImageHandlers(girlWalking1, 'girl-walking1.png');
+setupImageHandlers(girlWalking2, 'girl-walking2.png');
+setupImageHandlers(catImage, 'cat.png');
+setupImageHandlers(catWalking1, 'cat-walking1.png');
+setupImageHandlers(catWalking2, 'cat-walking2.png');
+setupImageHandlers(catYawning, 'cat-yawning.png');
+setupImageHandlers(catLickingPaw, 'cat-licking-paw.png');
+setupImageHandlers(catSleeping, 'cat-sleeping.png');
 
-catImage.onload = imageLoadHandler;
-catImage.onerror = () => { console.error('Failed to load cat.png'); imageLoadHandler(); };
+// House sprites
+setupImageHandlers(houseImages.house1, 'house1.png');
+setupImageHandlers(houseImages.house1Lights, 'house1-with-lights.png');
+setupImageHandlers(houseImages.house2, 'house2.png');
+setupImageHandlers(houseImages.house2Lights, 'house2-with-lights.png');
+setupImageHandlers(houseImages.house3, 'house3.png');
+setupImageHandlers(houseImages.house3Lights, 'house3-with-lights.png');
+setupImageHandlers(houseImages.house4, 'house4.png');
+setupImageHandlers(houseImages.house4Lights, 'house4-with-lights.png');
 
-catWalking1.onload = imageLoadHandler;
-catWalking1.onerror = () => { console.error('Failed to load cat-walking1.png'); imageLoadHandler(); };
+// Companion/friend sprites
+setupImageHandlers(friendImages.kitten1, 'kitten1.png');
+setupImageHandlers(friendImages.kitten2, 'kitten2.png');
+setupImageHandlers(friendImages.kitten3, 'kitten3.png');
+setupImageHandlers(friendImages.frog, 'frog.png');
+setupImageHandlers(friendImages.squirrel, 'squirrel.png');
+setupImageHandlers(friendImages.puppy, 'puppy.png');
+setupImageHandlers(friendImages.bunny, 'bunny.png');
 
-catWalking2.onload = imageLoadHandler;
-catWalking2.onerror = () => { console.error('Failed to load cat-walking2.png'); imageLoadHandler(); };
+// Furniture sprites
+setupImageHandlers(furnitureImages.bed, 'bed.png');
+setupImageHandlers(furnitureImages.table, 'table.png');
+setupImageHandlers(furnitureImages.chair, 'chair.png');
+setupImageHandlers(furnitureImages.rug, 'rug.png');
+setupImageHandlers(furnitureImages.plant, 'plant.png');
+setupImageHandlers(furnitureImages.lamp, 'lamp.png');
 
-catYawning.onload = imageLoadHandler;
-catYawning.onerror = () => { console.error('Failed to load cat-yawning.png'); imageLoadHandler(); };
+// Chest sprites
+setupImageHandlers(chestImages.purple.full, 'purple-chest-full.png');
+setupImageHandlers(chestImages.purple.empty, 'purple-chest-empty.png');
+setupImageHandlers(chestImages.green.full, 'green-chest.png');
+setupImageHandlers(chestImages.green.empty, 'green-chest-open.png');
+setupImageHandlers(chestImages.blue.full, 'blue-chest.png');
+setupImageHandlers(chestImages.blue.empty, 'blue-chest-open.png');
+setupImageHandlers(chestImages.red.full, 'red-chest.png');
+setupImageHandlers(chestImages.red.empty, 'red-chest-open.png');
+setupImageHandlers(chestImages.magenta.full, 'magenta-chest.png');
+setupImageHandlers(chestImages.magenta.empty, 'magenta-chest-open.png');
 
-catLickingPaw.onload = imageLoadHandler;
-catLickingPaw.onerror = () => { console.error('Failed to load cat-licking-paw.png'); imageLoadHandler(); };
+// Environment sprites
+setupImageHandlers(treeImages[0], 'tree1.png');
+setupImageHandlers(treeImages[1], 'tree2.png');
+setupImageHandlers(treeImages[2], 'pinetree.png');
+setupImageHandlers(grassTileImage, 'grass_tile.jpg');
+setupImageHandlers(floorboardsImage, 'floorboards.jpg');
 
-catSleeping.onload = imageLoadHandler;
-catSleeping.onerror = () => { console.error('Failed to load cat-sleeping.png'); imageLoadHandler(); };
-
-houseImages.house1.onload = imageLoadHandler;
-houseImages.house1.onerror = () => { console.error('Failed to load house1.png'); imageLoadHandler(); };
-
-houseImages.house1Lights.onload = imageLoadHandler;
-houseImages.house1Lights.onerror = () => { console.error('Failed to load house1-with-lights.png'); imageLoadHandler(); };
-
-houseImages.house2.onload = imageLoadHandler;
-houseImages.house2.onerror = () => { console.error('Failed to load house2.png'); imageLoadHandler(); };
-
-houseImages.house2Lights.onload = imageLoadHandler;
-houseImages.house2Lights.onerror = () => { console.error('Failed to load house2-with-lights.png'); imageLoadHandler(); };
-
-houseImages.house3.onload = imageLoadHandler;
-houseImages.house3.onerror = () => { console.error('Failed to load house3.png'); imageLoadHandler(); };
-
-houseImages.house3Lights.onload = imageLoadHandler;
-houseImages.house3Lights.onerror = () => { console.error('Failed to load house3-with-lights.png'); imageLoadHandler(); };
-
-houseImages.house4.onload = imageLoadHandler;
-houseImages.house4.onerror = () => { console.error('Failed to load house4.png'); imageLoadHandler(); };
-
-houseImages.house4Lights.onload = imageLoadHandler;
-houseImages.house4Lights.onerror = () => { console.error('Failed to load house4-with-lights.png'); imageLoadHandler(); };
-
-friendImages.kitten1.onload = imageLoadHandler;
-friendImages.kitten1.onerror = () => { console.error('Failed to load kitten1.png'); imageLoadHandler(); };
-
-friendImages.kitten2.onload = imageLoadHandler;
-friendImages.kitten2.onerror = () => { console.error('Failed to load kitten2.png'); imageLoadHandler(); };
-
-friendImages.kitten3.onload = imageLoadHandler;
-friendImages.kitten3.onerror = () => { console.error('Failed to load kitten3.png'); imageLoadHandler(); };
-
-friendImages.frog.onload = imageLoadHandler;
-friendImages.frog.onerror = () => { console.error('Failed to load frog.png'); imageLoadHandler(); };
-
-friendImages.squirrel.onload = imageLoadHandler;
-friendImages.squirrel.onerror = () => { console.error('Failed to load squirrel.png'); imageLoadHandler(); };
-
-friendImages.puppy.onload = imageLoadHandler;
-friendImages.puppy.onerror = () => { console.error('Failed to load puppy.png'); imageLoadHandler(); };
-
-friendImages.bunny.onload = imageLoadHandler;
-friendImages.bunny.onerror = () => { console.error('Failed to load bunny.png'); imageLoadHandler(); };
-
-furnitureImages.bed.onload = imageLoadHandler;
-furnitureImages.bed.onerror = () => { console.error('Failed to load bed.png'); imageLoadHandler(); };
-
-furnitureImages.table.onload = imageLoadHandler;
-furnitureImages.table.onerror = () => { console.error('Failed to load table.png'); imageLoadHandler(); };
-
-furnitureImages.chair.onload = imageLoadHandler;
-furnitureImages.chair.onerror = () => { console.error('Failed to load chair.png'); imageLoadHandler(); };
-
-furnitureImages.rug.onload = imageLoadHandler;
-furnitureImages.rug.onerror = () => { console.error('Failed to load rug.png'); imageLoadHandler(); };
-
-furnitureImages.plant.onload = imageLoadHandler;
-furnitureImages.plant.onerror = () => { console.error('Failed to load plant.png'); imageLoadHandler(); };
-
-furnitureImages.lamp.onload = imageLoadHandler;
-furnitureImages.lamp.onerror = () => { console.error('Failed to load lamp.png'); imageLoadHandler(); };
-
-// Chest image handlers
-chestImages.purple.full.onload = imageLoadHandler;
-chestImages.purple.full.onerror = () => { console.error('Failed to load purple-chest-full.png'); imageLoadHandler(); };
-chestImages.purple.empty.onload = imageLoadHandler;
-chestImages.purple.empty.onerror = () => { console.error('Failed to load purple-chest-empty.png'); imageLoadHandler(); };
-
-chestImages.green.full.onload = imageLoadHandler;
-chestImages.green.full.onerror = () => { console.error('Failed to load green-chest.png'); imageLoadHandler(); };
-chestImages.green.empty.onload = imageLoadHandler;
-chestImages.green.empty.onerror = () => { console.error('Failed to load green-chest-open.png'); imageLoadHandler(); };
-
-chestImages.blue.full.onload = imageLoadHandler;
-chestImages.blue.full.onerror = () => { console.error('Failed to load blue-chest.png'); imageLoadHandler(); };
-chestImages.blue.empty.onload = imageLoadHandler;
-chestImages.blue.empty.onerror = () => { console.error('Failed to load blue-chest-open.png'); imageLoadHandler(); };
-
-chestImages.red.full.onload = imageLoadHandler;
-chestImages.red.full.onerror = () => { console.error('Failed to load red-chest.png'); imageLoadHandler(); };
-chestImages.red.empty.onload = imageLoadHandler;
-chestImages.red.empty.onerror = () => { console.error('Failed to load red-chest-open.png'); imageLoadHandler(); };
-
-chestImages.magenta.full.onload = imageLoadHandler;
-chestImages.magenta.full.onerror = () => { console.error('Failed to load magenta-chest.png'); imageLoadHandler(); };
-chestImages.magenta.empty.onload = imageLoadHandler;
-chestImages.magenta.empty.onerror = () => { console.error('Failed to load magenta-chest-open.png'); imageLoadHandler(); };
-
-treeImages[0].onload = imageLoadHandler;
-treeImages[0].onerror = () => { console.error('Failed to load tree1.png'); imageLoadHandler(); };
-
-treeImages[1].onload = imageLoadHandler;
-treeImages[1].onerror = () => { console.error('Failed to load tree2.png'); imageLoadHandler(); };
-
-treeImages[2].onload = imageLoadHandler;
-treeImages[2].onerror = () => { console.error('Failed to load pinetree.png'); imageLoadHandler(); };
-
-grassTileImage.onload = imageLoadHandler;
-grassTileImage.onerror = () => { console.error('Failed to load grass_tile.jpg'); imageLoadHandler(); };
-
-floorboardsImage.onload = imageLoadHandler;
-floorboardsImage.onerror = () => { console.error('Failed to load floorboards.jpg'); imageLoadHandler(); };
-
-fireflyImage.onload = imageLoadHandler;
-fireflyImage.onerror = () => { console.error('Failed to load firefly.png'); imageLoadHandler(); };
-
-emptyJarImage.onload = imageLoadHandler;
-emptyJarImage.onerror = () => { console.error('Failed to load empty-jar.png'); imageLoadHandler(); };
-
-fullJarImage.onload = imageLoadHandler;
-fullJarImage.onerror = () => { console.error('Failed to load full-jar.png'); imageLoadHandler(); };
-
-catFountainImage.onload = imageLoadHandler;
-catFountainImage.onerror = () => { console.error('Failed to load cat-fountain.png'); imageLoadHandler(); };
-
-titleImage.onload = imageLoadHandler;
-titleImage.onerror = () => { console.error('Failed to load title.png'); imageLoadHandler(); };
+// Misc sprites
+setupImageHandlers(fireflyImage, 'firefly.png');
+setupImageHandlers(emptyJarImage, 'empty-jar.png');
+setupImageHandlers(fullJarImage, 'full-jar.png');
+setupImageHandlers(catFountainImage, 'cat-fountain.png');
+setupImageHandlers(titleImage, 'title.png');
 
 // Music playlist
 const musicPlaylist = [
@@ -2772,8 +2484,7 @@ document.addEventListener('keydown', (e) => {
 
     // ESC key to close controls panel
     if (e.key === 'Escape') {
-        const controlsPanel = document.getElementById('controlsPanel');
-        if (controlsPanel.style.display === 'block') {
+        if (controlsPanel && controlsPanel.style.display === 'block') {
             controlsPanel.style.display = 'none';
             gameState.controlsPanelShown = false;
             // Mark as interacted to prevent auto-show from re-triggering
@@ -2785,7 +2496,6 @@ document.addEventListener('keydown', (e) => {
 
     // "/" or "?" key to toggle controls panel
     if (e.key === '/' || e.key === '?') {
-        const controlsPanel = document.getElementById('controlsPanel');
         if (controlsPanel) {
             const isVisible = controlsPanel.style.display === 'block';
             controlsPanel.style.display = isVisible ? 'none' : 'block';
@@ -2815,7 +2525,7 @@ document.addEventListener('keydown', (e) => {
 
     // Transform with T
     if (e.key === 't' || e.key === 'T') {
-        if (gameState.player && !gameState.isInsideHouse) {
+        if (gameState.player) {
             gameState.player.transform();
         }
     }
@@ -2829,29 +2539,13 @@ document.addEventListener('keydown', (e) => {
     // DEBUG: Shift+Plus to add 10 fireflies
     if (e.shiftKey && (e.key === '+' || e.key === '=')) {
         gameState.fireflyCount = Math.min(999, gameState.fireflyCount + 10);
-        updateUI();
         e.preventDefault();
     }
 
     // Teleport to fountain with Home key
     if (e.key === 'Home') {
-        if (gameState.player && !gameState.isInsideHouse && gameState.village && gameState.village.catFountain) {
-            const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
-            const fountainBottomY = gameState.village.catFountain.y + gameState.village.catFountain.height;
-            gameState.player.x = fountainCenterX - gameState.player.width / 2;
-            gameState.player.y = fountainBottomY + 50; // Position in front of fountain
-
-            // Teleport companions around the player
-            gameState.companions.forEach((companion, index) => {
-                const angle = (index / gameState.companions.length) * Math.PI * 2;
-                const radius = 80;
-                companion.x = gameState.player.x + Math.cos(angle) * radius;
-                companion.y = gameState.player.y + Math.sin(angle) * radius;
-                companion.targetX = companion.x;
-                companion.targetY = companion.y;
-            });
-        }
-        e.preventDefault(); // Prevent default Home key behavior
+        teleportToFountain();
+        e.preventDefault();
     }
 
     // Drop closest companion with F
@@ -2872,7 +2566,8 @@ document.addEventListener('keydown', (e) => {
                 isInHouse: gameState.isInsideHouse,
                 houseId: gameState.currentHouseId,
                 wanderTarget: null,
-                wanderCooldown: 0
+                wanderCooldown: 0,
+                bobOffset: lastCompanion.bobOffset
             };
 
             // If inside house, set house coordinates instead
@@ -2892,7 +2587,7 @@ document.addEventListener('keydown', (e) => {
         if (gameState.isInsideHouse) {
             // Rotate furniture being placed from shop
             if (gameState.selectedFurnitureType) {
-                gameState.furnitureRotation = (gameState.furnitureRotation + 90) % 360;
+                gameState.placementRotation = (gameState.placementRotation + 90) % 360;
             }
             // Rotate already-placed furniture that's selected
             else if (gameState.selectedPlacedFurniture) {
@@ -2946,7 +2641,7 @@ canvas.addEventListener('mousemove', (e) => {
         // Handle slider dragging
         if (gameState.isDraggingSlider && gameState.draggedFurnitureType) {
             e.preventDefault(); // Prevent default drag behavior
-            updateSliderValue(gameState.mousePos.x, gameState.mousePos.y);
+            updateSliderValue(gameState.mousePos.x);
         } else {
             // Not dragging - ensure default cursor
             canvas.style.cursor = 'default';
@@ -2968,9 +2663,7 @@ canvas.addEventListener('mousemove', (e) => {
         const compassX = canvas.width - 60;
         const compassY = 140;
         const compassRadius = 25;
-        const dx = mouseX - compassX;
-        const dy = mouseY - compassY;
-        const distanceToCompass = Math.sqrt(dx * dx + dy * dy);
+        const distanceToCompass = getDistance(mouseX, mouseY, compassX, compassY);
 
         if (distanceToCompass <= compassRadius) {
             canvas.style.cursor = 'pointer';
@@ -3006,18 +2699,8 @@ canvas.addEventListener('mousedown', (e) => {
     }
 });
 
-canvas.addEventListener('mouseup', (e) => {
-    // Always reset state and cursor on mouseup
-    gameState.isDraggingSlider = false;
-    gameState.draggedSliderType = null;
-    gameState.draggedFurnitureType = null;
-    gameState.isDraggingFurniture = false;
-    canvas.style.cursor = 'default';
-});
-
-// Also listen for mouseup on document to catch releases outside canvas
-document.addEventListener('mouseup', (e) => {
-    // Always reset all drag states and cursor on any mouseup
+// Reset drag states on any mouseup (document level catches all, including outside canvas)
+document.addEventListener('mouseup', () => {
     gameState.isDraggingSlider = false;
     gameState.draggedSliderType = null;
     gameState.draggedFurnitureType = null;
@@ -3031,12 +2714,7 @@ canvas.addEventListener('click', (e) => {
     const clickY = e.clientY - rect.top;
 
     // Start music on first click
-    if (!gameState.musicStarted) {
-        gameState.musicStarted = true;
-        bgMusic.play().catch(err => {
-            gameState.musicStarted = false; // Allow retry on error
-        });
-    }
+    tryStartMusic();
 
     // Check for minimap legend clicks
     if (gameState.showMinimap && gameState.minimapLegendBounds.length > 0) {
@@ -3077,26 +2755,10 @@ canvas.addEventListener('click', (e) => {
         const compassX = canvas.width - 60;
         const compassY = 140; // 60 (sun/moon y) + 30 (sun/moon radius) + 50 (offset)
         const compassRadius = 25;
-        const dx = clickX - compassX;
-        const dy = clickY - compassY;
-        const distanceToCompass = Math.sqrt(dx * dx + dy * dy);
+        const distanceToCompass = getDistance(clickX, clickY, compassX, compassY);
 
-        if (distanceToCompass <= compassRadius && gameState.village && gameState.village.catFountain) {
-            // Clicked compass - teleport to cat fountain
-            const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
-            const fountainBottomY = gameState.village.catFountain.y + gameState.village.catFountain.height;
-            gameState.player.x = fountainCenterX - gameState.player.width / 2;
-            gameState.player.y = fountainBottomY + 50; // Position in front of fountain
-
-            // Teleport companions around the player
-            gameState.companions.forEach((companion, index) => {
-                const angle = (index / gameState.companions.length) * Math.PI * 2;
-                const radius = 80;
-                companion.x = gameState.player.x + Math.cos(angle) * radius;
-                companion.y = gameState.player.y + Math.sin(angle) * radius;
-                companion.targetX = companion.x;
-                companion.targetY = companion.y;
-            });
+        if (distanceToCompass <= compassRadius) {
+            teleportToFountain();
         } else {
             // Not clicking compass - shoot magic
             if (gameState.player) {
@@ -3108,7 +2770,6 @@ canvas.addEventListener('click', (e) => {
 
 // Start Game
 function startGame() {
-    document.getElementById('characterCreation').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'block';
 
     // Initialize game objects FIRST
@@ -3137,31 +2798,6 @@ function startGame() {
     // Music will start on first player movement (handled in player update)
 }
 
-function spawnEnemies(count) {
-    for (let i = 0; i < count; i++) {
-        const x = Math.random() * gameState.village.width;
-        const y = Math.random() * gameState.village.height;
-
-        // Check if position is valid (not in building)
-        let validPosition = true;
-        for (let building of gameState.village.buildings) {
-            if (x > building.x && x < building.x + building.width &&
-                y > building.y && y < building.y + building.height) {
-                validPosition = false;
-                break;
-            }
-        }
-
-        if (validPosition && gameState.player) {
-            const dx = x - gameState.player.x;
-            const dy = y - gameState.player.y;
-            if (Math.sqrt(dx * dx + dy * dy) > 200) {
-                gameState.enemies.push(new Enemy(x, y));
-            }
-        }
-    }
-}
-
 function spawnItems(count) {
     const itemTypes = ['apple', 'orange', 'berry'];
 
@@ -3188,9 +2824,7 @@ function spawnChests(count) {
 
             // Check distance from buildings - must be at least 120 units away or clearly in front
             for (let building of gameState.village.buildings) {
-                const dx = x - building.x;
-                const dy = y - building.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distance = getDistance(x, y, building.x, building.y);
 
                 // If too close (less than 120 units), only allow if chest is clearly in front (below)
                 if (distance < 120 && y < building.y + 100) {
@@ -3202,9 +2836,7 @@ function spawnChests(count) {
             // Check distance from trees - must be at least 60 units away
             if (validPosition) {
                 for (let tree of gameState.village.trees) {
-                    const dx = x - tree.x;
-                    const dy = y - tree.y;
-                    if (Math.sqrt(dx * dx + dy * dy) < 60) {
+                    if (getDistance(x, y, tree.x, tree.y) < 60) {
                         validPosition = false;
                         break;
                     }
@@ -3216,9 +2848,7 @@ function spawnChests(count) {
             if (validPosition && gameState.village.catFountain) {
                 const fountainCenterX = gameState.village.catFountain.x + gameState.village.catFountain.width / 2;
                 const fountainCenterY = gameState.village.catFountain.y + gameState.village.catFountain.height / 2;
-                const dx = x - fountainCenterX;
-                const dy = y - fountainCenterY;
-                distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
+                distanceFromCenter = getDistance(x, y, fountainCenterX, fountainCenterY);
                 if (distanceFromCenter < 300) {
                     validPosition = false;
                 }
@@ -3230,9 +2860,7 @@ function spawnChests(count) {
                 const newChestTier = Math.min(Math.floor(distanceFromCenter / 2000), 4);
 
                 for (let chest of gameState.chests) {
-                    const dx = x - chest.x;
-                    const dy = y - chest.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const distance = getDistance(x, y, chest.x, chest.y);
 
                     // Purple-to-Purple: 350 units, anything else: 500 units
                     const minDistance = (newChestTier === 0 && chest.tier === 0) ? 350 : 500;
@@ -3283,17 +2911,11 @@ function enterHouse(building) {
     gameState.placedFurniture = gameState.houseFurniture[building.id];
 
     // Position player near the entrance (bottom center of room)
-    // Room dimensions match drawHouseInterior
-    const margin = 10;
-    const roomWidth = canvas.width - (margin * 2);
-    const roomHeight = canvas.height - (margin * 2) - 200;
-    const roomX = margin;
-    const roomY = margin;
-    const wallThickness = 35;
+    const layout = getInteriorLayout();
 
     // Start player just above the door area (bottom center)
-    gameState.player.houseX = roomX + roomWidth / 2 - gameState.player.width / 2;
-    gameState.player.houseY = roomY + roomHeight - wallThickness - gameState.player.height - 60; // 60px above door
+    gameState.player.houseX = layout.roomX + layout.roomWidth / 2 - gameState.player.width / 2;
+    gameState.player.houseY = layout.roomY + layout.roomHeight - layout.wallThickness - gameState.player.height - 60;
 }
 
 function exitHouse() {
@@ -3310,93 +2932,42 @@ function exitHouse() {
 
 // Draw house interior
 function drawHouseInterior(ctx) {
-    // Define interior room dimensions - reduced height by 200px for furniture shop
-    const margin = 10; // Very small margin to maximize room size
-    const roomWidth = canvas.width - (margin * 2);  // 1180px (1200 - 20)
-    const roomHeight = canvas.height - (margin * 2) - 200; // 580px (800 - 20 - 200)
-    const roomX = margin;  // Start at x=10
-    const roomY = margin;  // Start at y=10
-    const wallThickness = 35;
+    const layout = getInteriorLayout();
+    const { roomWidth, roomHeight, roomX, roomY, wallThickness } = layout;
 
     // Update player movement in house
     if (gameState.player) {
         const prevX = gameState.player.houseX;
         const prevY = gameState.player.houseY;
 
+        // Check if speed boost has expired (same as world movement)
+        gameState.player.checkSpeedBoost();
+
+        // Use actual speed with cat multiplier (same as world movement)
+        const actualSpeed = gameState.player.getActualSpeed();
+
         let moved = false;
         if (gameState.keys['ArrowUp']) {
-            gameState.player.houseY -= gameState.player.speed;
+            gameState.player.houseY -= actualSpeed;
             moved = true;
         }
         if (gameState.keys['ArrowDown']) {
-            gameState.player.houseY += gameState.player.speed;
+            gameState.player.houseY += actualSpeed;
             moved = true;
         }
         if (gameState.keys['ArrowLeft']) {
-            gameState.player.houseX -= gameState.player.speed;
+            gameState.player.houseX -= actualSpeed;
             gameState.player.facingRight = false;
             moved = true;
         }
         if (gameState.keys['ArrowRight']) {
-            gameState.player.houseX += gameState.player.speed;
+            gameState.player.houseX += actualSpeed;
             gameState.player.facingRight = true;
             moved = true;
         }
 
-        // Update walking animation for cat
-        if (gameState.player.isCat) {
-            gameState.player.isMoving = moved;
-            if (moved) {
-                gameState.player.walkingFrameCounter++;
-                if (gameState.player.walkingFrameCounter >= 10) {
-                    gameState.player.walkingFrame = (gameState.player.walkingFrame + 1) % 2;
-                    gameState.player.walkingFrameCounter = 0;
-                }
-            } else {
-                gameState.player.walkingFrameCounter = 0;
-                gameState.player.walkingFrame = 0;
-            }
-
-            // Idle animation logic for cat inside house
-            if (!moved) {
-                // Increment idle time
-                gameState.player.idleTime += 16; // Approximate ms per frame at 60 FPS
-
-                // After 20 seconds, cat falls asleep and stays asleep
-                if (gameState.player.idleTime > 20000) {
-                    // Only set up sleep state once
-                    if (gameState.player.idleAnimationType !== 'sleep') {
-                        gameState.player.idleAnimationType = 'sleep';
-
-                        // Arrange companions in a ring around the sleeping cat (using house coordinates)
-                        gameState.companions.forEach((companion, index) => {
-                            const angle = (index / gameState.companions.length) * Math.PI * 2;
-                            const radius = 80;
-                            companion.houseTargetX = gameState.player.houseX + Math.cos(angle) * radius;
-                            companion.houseTargetY = gameState.player.houseY + Math.sin(angle) * radius;
-                        });
-                    }
-                }
-                // Check if current idle animation has finished (but not sleep - sleep persists)
-                else if (gameState.player.idleAnimationType && gameState.player.idleAnimationType !== 'sleep' && Date.now() - gameState.player.idleAnimationStartTime > gameState.player.idleAnimationDuration) {
-                    gameState.player.idleAnimationType = null;
-                }
-                // Randomly trigger a new idle animation after being idle for a while (only if not sleeping)
-                else if (!gameState.player.idleAnimationType && gameState.player.idleTime > 6000 && gameState.player.idleTime < 20000) {
-                    // Random chance to trigger animation (about 1% chance per frame when idle > 6s)
-                    if (Math.random() < 0.01) {
-                        // Randomly choose yawn or lick
-                        gameState.player.idleAnimationType = Math.random() < 0.5 ? 'yawn' : 'lick';
-                        gameState.player.idleAnimationStartTime = Date.now();
-                        // Don't reset idleTime - let it keep accumulating toward sleep threshold
-                    }
-                }
-            } else {
-                // Reset idle state when moving
-                gameState.player.idleTime = 0;
-                gameState.player.idleAnimationType = null;
-            }
-        }
+        // Update animation state (walking frames, idle animations) - works for both cat and human
+        gameState.player.updateAnimation(moved, gameState.player.houseX, gameState.player.houseY, true);
 
         // Proper collision with walls - keep player fully inside room
         const leftBound = roomX + wallThickness;
@@ -3414,7 +2985,9 @@ function drawHouseInterior(ctx) {
     }
 
     // Update companions in house
-    for (let companion of gameState.companions) {
+    const dt = gameState.deltaTime || 16;
+    for (let i = 0; i < gameState.companions.length; i++) {
+        const companion = gameState.companions[i];
         if (!companion.houseX) {
             companion.houseX = gameState.player.houseX + 50;
             companion.houseY = gameState.player.houseY + 50;
@@ -3426,7 +2999,7 @@ function drawHouseInterior(ctx) {
             if (companion.houseTargetX !== undefined && companion.houseTargetY !== undefined) {
                 const dx = companion.houseTargetX - companion.houseX;
                 const dy = companion.houseTargetY - companion.houseY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distance = getDistance(companion.houseTargetX, companion.houseTargetY, companion.houseX, companion.houseY);
 
                 if (distance > 5) { // Close enough threshold
                     const angle = Math.atan2(dy, dx);
@@ -3436,10 +3009,10 @@ function drawHouseInterior(ctx) {
             }
         } else {
             // Follow player normally
-            const targetDist = 50 + gameState.companions.indexOf(companion) * 30;
+            const targetDist = 50 + i * 30;
             const dx = gameState.player.houseX - companion.houseX;
             const dy = gameState.player.houseY - companion.houseY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = getDistance(gameState.player.houseX, gameState.player.houseY, companion.houseX, companion.houseY);
 
             if (distance > targetDist) {
                 const angle = Math.atan2(dy, dx);
@@ -3448,7 +3021,8 @@ function drawHouseInterior(ctx) {
             }
         }
 
-        companion.bobOffset += 0.1;
+        // 0.006 rad/ms = ~1 cycle per second (was 0.1 per frame at 60fps)
+        companion.bobOffset += 0.006 * dt;
     }
 
     // Clear canvas with dark background
@@ -3553,10 +3127,7 @@ function drawHouseInterior(ctx) {
     // Draw companions
     for (let companion of gameState.companions) {
         // Shadow
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.beginPath();
-        ctx.ellipse(companion.houseX + 20, companion.houseY + 35, 8, 2, 0, 0, Math.PI * 2);
-        ctx.fill();
+        drawCompanionShadow(ctx, companion.houseX, companion.houseY);
 
         // Draw friend image
         const image = friendImages[companion.type];
@@ -3578,8 +3149,10 @@ function drawHouseInterior(ctx) {
             dropped.houseY = dropped.y || roomY + roomHeight / 2;
         }
 
+        const dt = gameState.deltaTime || 16;
+
         // Wandering behavior
-        dropped.wanderCooldown = (dropped.wanderCooldown || 0) - 16;
+        dropped.wanderCooldown = (dropped.wanderCooldown || 0) - dt;
         if (dropped.wanderCooldown <= 0 && (!dropped.wanderTarget || (Math.abs(dropped.houseX - dropped.wanderTarget.x) < 5 && Math.abs(dropped.houseY - dropped.wanderTarget.y) < 5))) {
             // Pick new random wander target
             dropped.wanderTarget = {
@@ -3593,7 +3166,7 @@ function drawHouseInterior(ctx) {
         if (dropped.wanderTarget) {
             const dx = dropped.wanderTarget.x - dropped.houseX;
             const dy = dropped.wanderTarget.y - dropped.houseY;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            const dist = getDistance(dropped.wanderTarget.x, dropped.wanderTarget.y, dropped.houseX, dropped.houseY);
             if (dist > 1) {
                 const speed = 0.5;
                 dropped.houseX += (dx / dist) * speed;
@@ -3603,9 +3176,7 @@ function drawHouseInterior(ctx) {
 
         // Check if player touches the dropped companion
         if (gameState.player) {
-            const dx = dropped.houseX - gameState.player.houseX;
-            const dy = dropped.houseY - gameState.player.houseY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = getDistance(dropped.houseX, dropped.houseY, gameState.player.houseX, gameState.player.houseY);
 
             if (distance < 40) {
                 // Pick up the companion and add back to line
@@ -3615,27 +3186,18 @@ function drawHouseInterior(ctx) {
             }
         }
 
-        // Draw dropped companion (larger and more visible)
+        // Draw dropped companion
         const companionSize = dropped.companion.sizeMultiplier || 1.0;
-        const droppedScale = 1.5; // Make dropped companions 50% larger for visibility
 
         // Shadow
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.beginPath();
-        ctx.ellipse(
-            dropped.houseX + (20 * companionSize * droppedScale),
-            dropped.houseY + (35 * companionSize * droppedScale),
-            8 * companionSize * droppedScale,
-            2 * companionSize * droppedScale,
-            0, 0, Math.PI * 2
-        );
-        ctx.fill();
+        drawCompanionShadow(ctx, dropped.houseX, dropped.houseY, companionSize);
 
         const image = friendImages[dropped.type];
         if (image && image.complete) {
-            dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
-            const width = 40 * companionSize * droppedScale;  // 1.5x larger
-            const height = 40 * companionSize * droppedScale;
+            // 0.006 rad/ms = ~1 cycle per second
+            dropped.bobOffset += 0.006 * dt;
+            const width = 40 * companionSize;
+            const height = 40 * companionSize;
             ctx.drawImage(image, dropped.houseX, dropped.houseY + Math.sin(dropped.bobOffset) * 2, width, height);
         }
     }
@@ -3648,43 +3210,19 @@ function drawHouseInterior(ctx) {
         ctx.ellipse(gameState.player.houseX + 24, gameState.player.houseY + 60, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw player sprite
-        if (gameState.player.isCat) {
-            // Select sprite based on movement and idle animation state
-            let catSprite = catImage; // Default idle
-            if (gameState.player.isMoving) {
-                catSprite = gameState.player.walkingFrame === 0 ? catWalking1 : catWalking2;
-            } else if (gameState.player.idleAnimationType === 'sleep') {
-                catSprite = catSleeping;
-            } else if (gameState.player.idleAnimationType === 'yawn') {
-                catSprite = catYawning;
-            } else if (gameState.player.idleAnimationType === 'lick') {
-                catSprite = catLickingPaw;
-            }
+        // Draw player sprite using shared sprite getters
+        const sprite = gameState.player.isCat ? gameState.player.getCatSprite() : gameState.player.getGirlSprite();
 
-            if (catSprite.complete) {
-                ctx.save();
-                if (gameState.player.facingRight) {
-                    // Flip horizontally for right movement
-                    ctx.translate(gameState.player.houseX + gameState.player.width, gameState.player.houseY);
-                    ctx.scale(-1, 1);
-                    ctx.drawImage(catSprite, 0, 0, gameState.player.width, gameState.player.height);
-                } else {
-                    // Normal left-facing sprite
-                    ctx.drawImage(catSprite, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
-                }
-                ctx.restore();
+        if (sprite.complete) {
+            ctx.save();
+            if (gameState.player.facingRight) {
+                ctx.translate(gameState.player.houseX + gameState.player.width, gameState.player.houseY);
+                ctx.scale(-1, 1);
+                ctx.drawImage(sprite, 0, 0, gameState.player.width, gameState.player.height);
+            } else {
+                ctx.drawImage(sprite, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
             }
-        } else {
-            // Use walking sprites for girl (girlWalking1 for idle, alternate when moving)
-            let girlSprite = girlWalking1; // Default idle
-            if (gameState.player.isMoving) {
-                girlSprite = gameState.player.walkingFrame === 0 ? girlWalking1 : girlWalking2;
-            }
-
-            if (girlSprite.complete) {
-                ctx.drawImage(girlSprite, gameState.player.houseX, gameState.player.houseY, gameState.player.width, gameState.player.height);
-            }
+            ctx.restore();
         }
     }
 
@@ -3693,7 +3231,7 @@ function drawHouseInterior(ctx) {
 
     // If furniture is selected, show placement preview
     if (gameState.selectedFurnitureType) {
-        const furniture = gameState.furnitureShop.find(f => f.type === gameState.selectedFurnitureType);
+        const furniture = furnitureByType[gameState.selectedFurnitureType]?.furniture;
         if (furniture) {
             ctx.save();
             ctx.globalAlpha = 0.5;
@@ -3711,7 +3249,7 @@ function drawHouseInterior(ctx) {
             const centerY = gameState.mousePos.y;
 
             ctx.translate(centerX, centerY);
-            ctx.rotate(gameState.furnitureRotation * Math.PI / 180);
+            ctx.rotate(gameState.placementRotation * Math.PI / 180);
             ctx.translate(-centerX, -centerY);
 
             // Apply hue shift to preview
@@ -3805,17 +3343,9 @@ function shiftHue(hexColor, hueShift) {
 
 // Draw furniture shop
 function drawFurnitureShop(ctx) {
-    // Position shop horizontally below the room
-    const margin = 10;
-    const roomWidth = canvas.width - (margin * 2);
-    const roomHeight = canvas.height - (margin * 2) - 200;
-    const roomY = margin;
-
-    const shopY = roomY + roomHeight + 40; // 40px below room for better spacing
-    const shopX = margin + 10;
-    const itemWidth = 110; // Increased for better usability
-    const itemHeight = 140; // Increased for better usability
-    const gap = 12; // Increased gap between items
+    const layout = getInteriorLayout();
+    const { shopY, shopX, itemWidth, gap } = layout;
+    const itemHeight = 140; // Item-specific height for shop display
 
     // Calculate shop background size for horizontal layout
     const shopWidth = (itemWidth + gap) * gameState.furnitureShop.length + 20;
@@ -3853,7 +3383,7 @@ function drawFurnitureShop(ctx) {
 
         // Furniture preview with more padding (bigger icon with rotation)
         const previewSize = 65;
-        const currentRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
+        const currentRotation = gameState.furnitureTypeRotations[furniture.type] || 0;
         const furnitureImg = furnitureImages[furniture.type];
 
         ctx.save();
@@ -3914,14 +3444,14 @@ function drawFurnitureShop(ctx) {
         ctx.roundRect(colorSliderX, colorSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
         ctx.fill();
 
-        const colorGradient = ctx.createLinearGradient(colorSliderX, colorSliderY, colorSliderX + sliderWidth, colorSliderY);
-        for (let h = 0; h <= 360; h += 60) {
-            colorGradient.addColorStop(h / 360, `hsl(${h}, 80%, 50%)`);
-        }
-        ctx.fillStyle = colorGradient;
+        // Use cached hue gradient with translate for positioning
+        ctx.save();
+        ctx.translate(colorSliderX, colorSliderY);
+        ctx.fillStyle = cachedHueSliderGradient;
         ctx.beginPath();
-        ctx.roundRect(colorSliderX, colorSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.roundRect(0, 0, sliderWidth, sliderHeight, sliderHeight / 2);
         ctx.fill();
+        ctx.restore();
 
         const colorHandleX = colorSliderX + (currentHue / 360) * sliderWidth;
         ctx.fillStyle = '#FFF';
@@ -3942,13 +3472,14 @@ function drawFurnitureShop(ctx) {
         ctx.roundRect(sizeSliderX, sizeSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
         ctx.fill();
 
-        const sizeGradient = ctx.createLinearGradient(sizeSliderX, sizeSliderY, sizeSliderX + sliderWidth, sizeSliderY);
-        sizeGradient.addColorStop(0, '#666');
-        sizeGradient.addColorStop(1, '#FFF');
-        ctx.fillStyle = sizeGradient;
+        // Use cached size gradient with translate for positioning
+        ctx.save();
+        ctx.translate(sizeSliderX, sizeSliderY);
+        ctx.fillStyle = cachedSizeSliderGradient;
         ctx.beginPath();
-        ctx.roundRect(sizeSliderX, sizeSliderY, sliderWidth, sliderHeight, sliderHeight / 2);
+        ctx.roundRect(0, 0, sliderWidth, sliderHeight, sliderHeight / 2);
         ctx.fill();
+        ctx.restore();
 
         const sizeHandleX = sizeSliderX + ((currentSize - 0.5) / 1.5) * sliderWidth;
         ctx.fillStyle = '#FFF';
@@ -3962,19 +3493,14 @@ function drawFurnitureShop(ctx) {
 }
 
 // Update slider value during drag
-function updateSliderValue(mouseX, mouseY) {
+function updateSliderValue(mouseX) {
     if (!gameState.isDraggingSlider || !gameState.draggedFurnitureType) return;
 
-    const margin = 10;
-    const roomHeight = canvas.height - (margin * 2) - 200;
-    const roomY = margin;
-    const shopY = roomY + roomHeight + 40;
-    const shopX = margin + 10;
-    const itemWidth = 110;
-    const gap = 12;
+    const layout = getInteriorLayout();
+    const { shopX, itemWidth, gap } = layout;
 
     // Find which furniture item index
-    const furnitureIndex = gameState.furnitureShop.findIndex(f => f.type === gameState.draggedFurnitureType);
+    const furnitureIndex = furnitureByType[gameState.draggedFurnitureType]?.index ?? -1;
     if (furnitureIndex === -1) return;
 
     const x = shopX + furnitureIndex * (itemWidth + gap);
@@ -3982,7 +3508,6 @@ function updateSliderValue(mouseX, mouseY) {
     const sliderX = x + 10;
 
     if (gameState.draggedSliderType === 'color') {
-        const colorSliderY = shopY + 98;
         // Clamp mouseX to slider bounds
         const clampedX = Math.max(sliderX, Math.min(mouseX, sliderX + sliderWidth));
         const hue = ((clampedX - sliderX) / sliderWidth) * 360;
@@ -3990,12 +3515,11 @@ function updateSliderValue(mouseX, mouseY) {
 
         // Update selected furniture if applicable
         if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === gameState.draggedFurnitureType) {
-            const furniture = gameState.furnitureShop.find(f => f.type === gameState.draggedFurnitureType);
+            const furniture = furnitureByType[gameState.draggedFurnitureType]?.furniture;
             gameState.selectedPlacedFurniture.hue = hue;
             gameState.selectedPlacedFurniture.color = shiftHue(furniture.color, hue);
         }
     } else if (gameState.draggedSliderType === 'size') {
-        const sizeSliderY = shopY + 118;
         // Clamp mouseX to slider bounds
         const clampedX = Math.max(sliderX, Math.min(mouseX, sliderX + sliderWidth));
         const size = 0.5 + ((clampedX - sliderX) / sliderWidth) * 1.5;
@@ -4011,15 +3535,8 @@ function updateSliderValue(mouseX, mouseY) {
 // Handle furniture shop clicks
 // isMouseDown: true if called from mousedown, false if from click
 function handleFurnitureShopClick(clickX, clickY, isMouseDown = false) {
-    // Match new horizontal layout
-    const margin = 10;
-    const roomHeight = canvas.height - (margin * 2) - 200;
-    const roomY = margin;
-    const shopY = roomY + roomHeight + 40; // 40px below room for better spacing
-    const shopX = margin + 10;
-    const itemWidth = 110; // Increased for better usability
-    const itemHeight = 140; // Increased for better usability
-    const gap = 12; // Increased gap between items
+    const layout = getInteriorLayout();
+    const { shopY, shopX, itemWidth, gap } = layout;
 
     for (let i = 0; i < gameState.furnitureShop.length; i++) {
         const furniture = gameState.furnitureShop[i];
@@ -4030,14 +3547,12 @@ function handleFurnitureShopClick(clickX, clickY, isMouseDown = false) {
         const rotateButtonX = x + itemWidth - 20;
         const rotateButtonY = y + 15;
         const rotateButtonRadius = 10;
-        const distToRotateButton = Math.sqrt(
-            Math.pow(clickX - rotateButtonX, 2) + Math.pow(clickY - rotateButtonY, 2)
-        );
+        const distToRotateButton = getDistance(clickX, clickY, rotateButtonX, rotateButtonY);
 
         if (distToRotateButton <= rotateButtonRadius) {
             // Rotate this furniture type's rotation by 45 degrees
-            const currentRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
-            gameState.furnitureHues[furniture.type + '_rotation'] = (currentRotation + 45) % 360;
+            const currentRotation = gameState.furnitureTypeRotations[furniture.type] || 0;
+            gameState.furnitureTypeRotations[furniture.type] = (currentRotation + 45) % 360;
 
             // If a placed furniture of this type is selected, update it too
             if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
@@ -4046,54 +3561,51 @@ function handleFurnitureShopClick(clickX, clickY, isMouseDown = false) {
             return true;
         }
 
-        // ONLY handle sliders on mousedown, NOT on click
-        if (isMouseDown) {
-            // Check if clicking on color slider
-            const sliderWidth = itemWidth - 20;
-            const sliderHeight = 10;
-            const colorSliderX = x + 10;
-            const colorSliderY = y + 98;
+        // Check slider areas
+        const sliderWidth = itemWidth - 20;
+        const sliderHeight = 10;
+        const colorSliderX = x + 10;
+        const colorSliderY = y + 98;
+        const sizeSliderX = x + 10;
+        const sizeSliderY = y + 118;
 
-            if (clickX >= colorSliderX && clickX <= colorSliderX + sliderWidth &&
-                clickY >= colorSliderY - 5 && clickY <= colorSliderY + sliderHeight + 5) {
-                // Start dragging color slider
+        // Check if in color slider area
+        if (clickX >= colorSliderX && clickX <= colorSliderX + sliderWidth &&
+            clickY >= colorSliderY - 5 && clickY <= colorSliderY + sliderHeight + 5) {
+            // Only start drag on mousedown, but always return true to indicate click was in shop
+            if (isMouseDown) {
                 gameState.isDraggingSlider = true;
                 gameState.draggedSliderType = 'color';
                 gameState.draggedFurnitureType = furniture.type;
 
-                // Update hue based on slider position
                 const hue = ((clickX - colorSliderX) / sliderWidth) * 360;
                 gameState.furnitureHues[furniture.type] = Math.max(0, Math.min(360, hue));
 
-                // If a placed furniture of this type is selected, update it too
                 if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
                     gameState.selectedPlacedFurniture.hue = hue;
                     gameState.selectedPlacedFurniture.color = shiftHue(furniture.color, hue);
                 }
-                return true;
             }
+            return true; // Always return true - click was in shop area
+        }
 
-            // Check if clicking on size slider
-            const sizeSliderX = x + 10;
-            const sizeSliderY = y + 118;
-
-            if (clickX >= sizeSliderX && clickX <= sizeSliderX + sliderWidth &&
-                clickY >= sizeSliderY - 5 && clickY <= sizeSliderY + sliderHeight + 5) {
-                // Start dragging size slider
+        // Check if in size slider area
+        if (clickX >= sizeSliderX && clickX <= sizeSliderX + sliderWidth &&
+            clickY >= sizeSliderY - 5 && clickY <= sizeSliderY + sliderHeight + 5) {
+            // Only start drag on mousedown, but always return true to indicate click was in shop
+            if (isMouseDown) {
                 gameState.isDraggingSlider = true;
                 gameState.draggedSliderType = 'size';
                 gameState.draggedFurnitureType = furniture.type;
 
-                // Update size based on slider position (0.5 to 2.0 range)
                 const size = 0.5 + ((clickX - sizeSliderX) / sliderWidth) * 1.5;
                 gameState.furnitureSizes[furniture.type] = Math.max(0.5, Math.min(2.0, size));
 
-                // If a placed furniture of this type is selected, update it too
                 if (gameState.selectedPlacedFurniture && gameState.selectedPlacedFurniture.type === furniture.type) {
                     gameState.selectedPlacedFurniture.size = size;
                 }
-                return true;
             }
+            return true; // Always return true - click was in shop area
         }
 
         // Check if clicking on furniture item preview/name area
@@ -4103,7 +3615,7 @@ function handleFurnitureShopClick(clickX, clickY, isMouseDown = false) {
             gameState.selectedFurnitureType = furniture.type;
             gameState.selectedPlacedFurniture = null;
             // Use stored rotation for this furniture type
-            gameState.furnitureRotation = gameState.furnitureHues[furniture.type + '_rotation'] || 0;
+            gameState.placementRotation = gameState.furnitureTypeRotations[furniture.type] || 0;
             return true;
         }
     }
@@ -4133,7 +3645,7 @@ function checkPlacedFurnitureClick(x, y) {
 function placeFurniture(x, y) {
     if (!gameState.selectedFurnitureType) return;
 
-    const furnitureTemplate = gameState.furnitureShop.find(f => f.type === gameState.selectedFurnitureType);
+    const furnitureTemplate = furnitureByType[gameState.selectedFurnitureType]?.furniture;
     if (!furnitureTemplate) return;
 
     // Place furniture (free now, no cost check)
@@ -4151,12 +3663,12 @@ function placeFurniture(x, y) {
         height: furnitureTemplate.height,
         x: x - furnitureTemplate.width / 2,
         y: y - furnitureTemplate.height / 2,
-        rotation: gameState.furnitureRotation
+        rotation: gameState.placementRotation
     });
 
     // Deselect
     gameState.selectedFurnitureType = null;
-    gameState.furnitureRotation = 0;
+    gameState.placementRotation = 0;
 }
 
 // Handle player interactions with priority
@@ -4189,9 +3701,7 @@ function handleInteractions() {
     // Collect all closed chests in range that can be opened (E key opens both free and firefly chests)
     for (let chest of gameState.chests) {
         if (!chest.opened && chest.canOpen() && chest.isNear(player, 80 * chest.sizeMultiplier)) {
-            const dx = chest.x - player.x;
-            const dy = chest.y - player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            const distance = getDistance(chest.x, chest.y, player.x, player.y);
             interactions.push({
                 type: 'chest',
                 target: chest,
@@ -4203,13 +3713,11 @@ function handleInteractions() {
 
     // Collect all buildings (houses) in range
     if (gameState.village) {
-        const canEnter = Date.now() - gameState.lastHouseExitTime > 500;
+        const canEnter = gameState.frameTime - gameState.lastHouseExitTime > 500;
         if (canEnter) {
             for (let building of gameState.village.buildings) {
                 if (player.isNear(building, 200)) {
-                    const dx = building.x - player.x;
-                    const dy = building.y - player.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const distance = getDistance(building.x, building.y, player.x, player.y);
                     interactions.push({
                         type: 'building',
                         target: building,
@@ -4243,49 +3751,6 @@ function handleInteractions() {
     }
 }
 
-// Handle F key for opening large chests (with firefly cost)
-function handleFKeyInteractions() {
-    const fKeyPressed = gameState.keys['f'] || gameState.keys['F'];
-
-    // Only trigger on new key press, not when held down
-    if (!fKeyPressed) {
-        gameState.fKeyWasPressed = false;
-        return;
-    }
-
-    if (gameState.fKeyWasPressed) {
-        return; // Key is being held, don't trigger again
-    }
-
-    gameState.fKeyWasPressed = true;
-
-    if (!gameState.player || gameState.isInsideHouse) return;
-
-    const player = gameState.player;
-
-    // Find closest large chest (fireflyCost > 0) in range
-    let closestChest = null;
-    let closestDistance = Infinity;
-
-    for (let chest of gameState.chests) {
-        if (!chest.opened && chest.fireflyCost > 0 && chest.isNear(player, 80 * chest.sizeMultiplier)) {
-            const dx = chest.x - player.x;
-            const dy = chest.y - player.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < closestDistance) {
-                closestDistance = distance;
-                closestChest = chest;
-            }
-        }
-    }
-
-    // Try to open the chest
-    if (closestChest) {
-        closestChest.open(); // The open() method now checks firefly count
-    }
-}
-
 // Spawn fireflies
 function spawnFireflies() {
     gameState.fireflies = [];
@@ -4315,6 +3780,10 @@ function spawnFireflies() {
 // Clear fireflies
 function clearFireflies() {
     gameState.fireflies = [];
+    // Clear the firefly image cache to free memory
+    for (const key in fireflyImageCache) {
+        delete fireflyImageCache[key];
+    }
 }
 
 // Day/Night Cycle
@@ -4338,13 +3807,6 @@ function updateDayNightCycle(deltaTime) {
     }
 
     // Chests no longer reset at dawn - removed feature
-}
-
-// Respawn enemies (called at dusk)
-function respawnEnemies() {
-    // Spawn a wave of enemies at night
-    const enemiesToSpawn = 15;
-    spawnEnemies(enemiesToSpawn);
 }
 
 // Draw sun/moon indicator
@@ -4466,7 +3928,6 @@ function drawSunMoon(ctx) {
 
         const dx = fountainCenterX - gameState.player.x;
         const dy = fountainCenterY - gameState.player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
         const angle = Math.atan2(dy, dx);
 
         // Check if fountain is on screen
@@ -4624,25 +4085,19 @@ function gainXP(amount) {
         gameState.level++;
         gameState.xpToNextLevel = Math.floor(gameState.xpToNextLevel * 1.5); // Each level requires 50% more XP
 
-        // Level up effects
-        gameState.player.maxHealth += 20;
-        gameState.player.health = gameState.player.maxHealth;
-
         // Spawn particles for level up
-        for (let i = 0; i < 30; i++) {
-            gameState.particles.push(new Particle(
-                gameState.player.x + gameState.player.width / 2,
-                gameState.player.y + gameState.player.height / 2,
-                '#FFD700'
-            ));
+        if (gameState.player) {
+            for (let i = 0; i < 30; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                gameState.particles.push(new Particle(
+                    gameState.player.x + gameState.player.width / 2,
+                    gameState.player.y + gameState.player.height / 2,
+                    angle,
+                    '#FFD700'
+                ));
+            }
         }
     }
-}
-
-// UI Updates
-function updateUI() {
-    if (!gameState.player) return;
-    // UI is drawn in the game loop on the canvas
 }
 
 // Minimap rendering
@@ -4740,26 +4195,11 @@ function drawMinimap(ctx) {
         const x = Math.floor(mapX + (chest.x * scale));
         const y = Math.floor(mapY + (chest.y * scale));
 
-        // Use fixed size based on tier for visibility
-        const tierSizes = {
-            'purple': 3,
-            'green': 4,
-            'blue': 5,
-            'red': 6,
-            'magenta': 7
-        };
-        const size = tierSizes[chest.color] || 3;
+        // Use CHEST_CONFIG for size and color
+        const chestConfig = CHEST_CONFIG[chest.color];
+        const size = chestConfig ? chestConfig.minimapSize : 3;
 
-        // Draw with bright colors for visibility
-        const colors = {
-            'purple': '#9370DB',
-            'green': '#00FF00',
-            'blue': '#00FFFF',
-            'red': '#FF0000',
-            'magenta': '#FF00FF'
-        };
-
-        ctx.fillStyle = colors[chest.color] || '#FFFFFF';
+        ctx.fillStyle = chestConfig ? chestConfig.color : '#FFFFFF';
         ctx.fillRect(x - Math.floor(size/2), y - Math.floor(size/2), size, size);
     }
 
@@ -4804,7 +4244,7 @@ function drawMinimap(ctx) {
         const x = mapX + (gameState.player.x * scale);
         const y = mapY + (gameState.player.y * scale);
         const size = Math.max(3, 5 * scale);
-        const pulse = Math.sin(Date.now() / 200) * 0.3 + 1.0;
+        const pulse = Math.sin(gameState.frameTime / 200) * 0.3 + 1.0;
 
         // Outer glow
         ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -4837,9 +4277,6 @@ function drawMinimap(ctx) {
     ctx.font = '12px Arial';
     ctx.textAlign = 'left';
 
-    // Clear legend bounds for click detection
-    gameState.minimapLegendBounds = [];
-
     const legend = [
         { text: 'Purple', image: chestImages.purple?.full, toggleKey: 'chestsPurple' },
         { text: 'Green', image: chestImages.green?.full, toggleKey: 'chestsGreen' },
@@ -4849,18 +4286,21 @@ function drawMinimap(ctx) {
         { text: 'Companions', image: friendImages.kitten1, toggleKey: 'companions' }
     ];
 
-    legend.forEach((item, i) => {
-        const y = legendY + (i * rowHeight);
-        const isEnabled = gameState.minimapLayers[item.toggleKey];
-
-        // Store clickable bounds
-        gameState.minimapLegendBounds.push({
+    // Cache legend bounds for click detection (only compute once)
+    if (!cachedMinimapLegendBounds) {
+        cachedMinimapLegendBounds = legend.map((item, i) => ({
             x: legendX,
-            y: y,
+            y: legendY + (i * rowHeight),
             width: 200,
             height: rowHeight,
             toggleKey: item.toggleKey
-        });
+        }));
+    }
+    gameState.minimapLegendBounds = cachedMinimapLegendBounds;
+
+    legend.forEach((item, i) => {
+        const y = legendY + (i * rowHeight);
+        const isEnabled = gameState.minimapLayers[item.toggleKey];
 
         // Draw checkbox
         ctx.strokeStyle = '#FFFFFF';
@@ -4876,11 +4316,6 @@ function drawMinimap(ctx) {
         if (item.image && item.image.complete) {
             ctx.globalAlpha = isEnabled ? 1.0 : 0.3;
             ctx.drawImage(item.image, iconX, y, iconSize, iconSize);
-            ctx.globalAlpha = 1.0;
-        } else if (item.color) {
-            ctx.fillStyle = item.color;
-            ctx.globalAlpha = isEnabled ? 1.0 : 0.3;
-            ctx.fillRect(iconX, y + 2, iconSize, iconSize - 4);
             ctx.globalAlpha = 1.0;
         }
 
@@ -4900,9 +4335,12 @@ function gameLoop() {
     const deltaTime = now - lastTime;
     lastTime = now;
 
+    // Store frame timing in gameState for access by update methods
+    gameState.deltaTime = deltaTime;
+    gameState.frameTime = now; // Cached Date.now() for this frame
+
     // Auto-show controls panel after 10 seconds of inactivity (only before user interaction)
     const idleTime = now - gameState.lastActivityTime;
-    const controlsPanel = document.getElementById('controlsPanel');
     if (idleTime > 10000 && !gameState.controlsPanelShown && !gameState.hasUserInteracted && controlsPanel) {
         controlsPanel.style.display = 'block';
         gameState.controlsPanelShown = true;
@@ -4930,20 +4368,14 @@ function gameLoop() {
             item.update();
         }
 
-        // Update chests (draw later, after night overlay)
-        for (let chest of gameState.chests) {
-            chest.update();
-        }
-
         // Update player (draw later, after night overlay)
         if (gameState.player) {
             gameState.player.update();
         }
 
-        // Update and draw companions
-        for (let companion of gameState.companions) {
-            companion.update();
-            companion.draw(ctx);
+        // Update companions (drawing happens after night overlay)
+        for (let i = 0; i < gameState.companions.length; i++) {
+            gameState.companions[i].update(i);
         }
 
         // Update dropped companions (collision detection only - drawing happens after night overlay)
@@ -4953,14 +4385,12 @@ function gameLoop() {
             // Skip if this companion is in a house (those are handled in drawHouseInterior)
             if (dropped.isInHouse) continue;
 
-            // Update bob offset for animation
-            dropped.bobOffset = (dropped.bobOffset || 0) + 0.1;
+            // Update bob offset for animation (0.006 rad/ms = ~1 cycle per second)
+            dropped.bobOffset += 0.006 * deltaTime;
 
             // Check if player touches the dropped companion
             if (gameState.player) {
-                const dx = dropped.x - gameState.player.x;
-                const dy = dropped.y - gameState.player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
+                const distance = getDistance(dropped.x, dropped.y, gameState.player.x, gameState.player.y);
 
                 if (distance < 40) {
                     // Pick up the companion and add back to line
@@ -4972,22 +4402,26 @@ function gameLoop() {
         }
 
         // Update and draw projectiles
-        gameState.projectiles = gameState.projectiles.filter(projectile => {
+        for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
+            const projectile = gameState.projectiles[i];
             const shouldRemove = projectile.update();
-            if (!shouldRemove) {
+            if (shouldRemove) {
+                gameState.projectiles.splice(i, 1);
+            } else {
                 projectile.draw(ctx);
             }
-            return !shouldRemove;
-        });
+        }
 
         // Update and draw particles
-        gameState.particles = gameState.particles.filter(particle => {
+        for (let i = gameState.particles.length - 1; i >= 0; i--) {
+            const particle = gameState.particles[i];
             const shouldRemove = particle.update();
-            if (!shouldRemove) {
+            if (shouldRemove) {
+                gameState.particles.splice(i, 1);
+            } else {
                 particle.draw(ctx);
             }
-            return !shouldRemove;
-        });
+        }
 
         // Apply night overlay to darken everything
         if (gameState.isNight) {
@@ -4997,7 +4431,9 @@ function gameLoop() {
 
         // Draw fireflies above the night overlay so they stay bright
         if (gameState.isNight && fireflyImage.complete) {
-            gameState.fireflies = gameState.fireflies.filter(firefly => {
+            for (let i = gameState.fireflies.length - 1; i >= 0; i--) {
+                const firefly = gameState.fireflies[i];
+
                 // Update floating animation
                 firefly.floatOffset += firefly.floatSpeed;
                 firefly.x += firefly.driftX;
@@ -5011,15 +4447,16 @@ function gameLoop() {
 
                 // Check if player touches firefly
                 if (gameState.player) {
-                    const dx = firefly.x - (gameState.player.x + gameState.player.width / 2);
-                    const dy = firefly.y - (gameState.player.y + gameState.player.height / 2);
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const playerCenterX = gameState.player.x + gameState.player.width / 2;
+                    const playerCenterY = gameState.player.y + gameState.player.height / 2;
+                    const distance = getDistance(firefly.x, firefly.y, playerCenterX, playerCenterY);
 
                     if (distance < 40) {
                         // Player picked up firefly - give XP based on value and increment jar count
                         gainXP(firefly.xpValue || 10);
                         gameState.fireflyCount = Math.min(999, gameState.fireflyCount + 1);
-                        return false; // Remove firefly
+                        gameState.fireflies.splice(i, 1);
+                        continue; // Skip to next firefly
                     }
                 }
 
@@ -5030,57 +4467,29 @@ function gameLoop() {
                 const size = firefly.size || 32;
                 const halfSize = size / 2;
 
+                // Viewport culling - skip drawing if off-screen (still update rainbow hue)
+                if (screenX < -size || screenX > canvas.width + size ||
+                    screenY < -size || screenY > canvas.height + size) {
+                    // Still update rainbow hue for off-screen fireflies
+                    if (firefly.isRainbow) {
+                        firefly.hue = (firefly.hue + 2) % 360;
+                    }
+                    continue;
+                }
+
                 // Rainbow fireflies undulate through colors continuously
                 if (firefly.isRainbow) {
                     firefly.hue = (firefly.hue + 2) % 360;
                 }
 
-                // Apply glow effect and draw firefly with hue rotation
-                ctx.save();
-
-                // Convert hue to color for glow
-                // Fireflies start yellow (60° hue) and rotate through the spectrum
-                let glowColor = '#FFFF00'; // Default yellow
-                if (firefly.hue > 0 || firefly.isRainbow) {
-                    const totalHue = (60 + firefly.hue) % 360; // Start at yellow (60°)
-                    // Convert HSL to RGB for glow
-                    const h = totalHue / 60;
-                    const x = 1 - Math.abs((h % 2) - 1);
-                    let r, g, b;
-                    if (h < 1) { r = 1; g = x; b = 0; }
-                    else if (h < 2) { r = x; g = 1; b = 0; }
-                    else if (h < 3) { r = 0; g = 1; b = x; }
-                    else if (h < 4) { r = 0; g = x; b = 1; }
-                    else if (h < 5) { r = x; g = 0; b = 1; }
-                    else { r = 1; g = 0; b = x; }
-                    glowColor = `rgb(${Math.round(r*255)}, ${Math.round(g*255)}, ${Math.round(b*255)})`;
-                }
-
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = glowColor;
-
-                // Get cached hue-rotated firefly image (or use original if no hue rotation)
-                const fireflyImg = firefly.hue > 0
-                    ? getCachedFireflyImage(firefly.hue, size)
-                    : fireflyImage;
-
-                // Draw firefly multiple times for stronger glow
-                if (firefly.hue > 0) {
-                    // Draw cached colored version
-                    ctx.drawImage(fireflyImg, screenX - halfSize, screenY - halfSize, size, size);
-                    ctx.shadowBlur = 15; // Slightly smaller for second pass
-                    ctx.drawImage(fireflyImg, screenX - halfSize, screenY - halfSize, size, size);
-                } else {
-                    // Draw original yellow firefly
-                    ctx.drawImage(fireflyImage, screenX - halfSize, screenY - halfSize, size, size);
-                    ctx.shadowBlur = 15; // Slightly smaller for second pass
-                    ctx.drawImage(fireflyImage, screenX - halfSize, screenY - halfSize, size, size);
-                }
-
-                ctx.restore();
-
-                return true; // Keep firefly
-            });
+                // Draw firefly with pre-rendered glow (no per-frame shadowBlur)
+                const glowData = getCachedFireflyWithGlow(firefly.hue, size);
+                ctx.drawImage(
+                    glowData.canvas,
+                    screenX - halfSize - glowData.padding,
+                    screenY - halfSize - glowData.padding
+                );
+            }
         }
 
         // Draw buildings and fountain after night overlay to stay bright
@@ -5088,19 +4497,40 @@ function gameLoop() {
             gameState.village.drawBuildings(ctx);
         }
 
-        // Draw chests after night overlay to stay bright
+        // Draw chests after night overlay to stay bright (with viewport culling)
         for (let chest of gameState.chests) {
+            const screenX = chest.x - gameState.camera.x;
+            const screenY = chest.y - gameState.camera.y;
+            // Skip if off-screen (with margin for chest size)
+            if (screenX < -chest.width || screenX > canvas.width + chest.width ||
+                screenY < -chest.height || screenY > canvas.height + chest.height) {
+                continue;
+            }
             chest.draw(ctx);
         }
 
-        // Draw items after night overlay to stay bright
+        // Draw items after night overlay to stay bright (with viewport culling)
         for (let item of gameState.items) {
+            const screenX = item.x - gameState.camera.x;
+            const screenY = item.y - gameState.camera.y;
+            // Skip if off-screen (with margin for item size)
+            if (screenX < -50 || screenX > canvas.width + 50 ||
+                screenY < -50 || screenY > canvas.height + 50) {
+                continue;
+            }
             item.draw(ctx);
         }
 
-        // Draw trees above buildings and chests
+        // Draw trees above buildings and chests (with viewport culling)
         if (gameState.village) {
             for (let tree of gameState.village.trees) {
+                const screenX = tree.x - gameState.camera.x;
+                const screenY = tree.y - gameState.camera.y;
+                // Skip if off-screen (with margin for tree size)
+                if (screenX < -tree.width || screenX > canvas.width + tree.width ||
+                    screenY < -tree.height || screenY > canvas.height + tree.height) {
+                    continue;
+                }
                 gameState.village.drawTree(ctx, tree);
             }
         }
@@ -5125,10 +4555,7 @@ function gameLoop() {
 
             // Draw shadow (scaled with companion size)
             const companionSize = dropped.companion.sizeMultiplier || 1.0;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-            ctx.beginPath();
-            ctx.ellipse(screenX + (20 * companionSize), screenY + (35 * companionSize), 8 * companionSize, 2 * companionSize, 0, 0, Math.PI * 2);
-            ctx.fill();
+            drawCompanionShadow(ctx, screenX, screenY, companionSize);
 
             // Draw friend image (scaled with companion size) with colored glow at night
             const image = friendImages[dropped.type];
@@ -5138,20 +4565,10 @@ function gameLoop() {
                 const bobY = screenY + Math.sin(dropped.bobOffset) * 2;
 
                 if (gameState.isNight) {
-                    // Assign glow color based on companion type (matching Companion class)
-                    const glowColors = {
-                        kitten1: '#FFA500',  // Orange
-                        kitten2: '#FFA500',  // Orange
-                        kitten3: '#FFA500',  // Orange
-                        frog: '#32CD32',     // Lime green
-                        squirrel: '#D2691E', // Chocolate brown
-                        puppy: '#DAA520',    // Goldenrod
-                        bunny: '#FFB6C1'     // Light pink
-                    };
-
+                    // Apply glow effect at night
                     ctx.save();
                     ctx.shadowBlur = 20 * companionSize; // Larger glow for dropped companions
-                    ctx.shadowColor = glowColors[dropped.type] || '#FFFFFF'; // Default white
+                    ctx.shadowColor = COMPANION_GLOW_COLORS[dropped.type] || '#FFFFFF'; // Default white
                     ctx.drawImage(image, screenX, bobY, width, height);
                     ctx.restore();
                 } else {
@@ -5162,7 +4579,7 @@ function gameLoop() {
 
         // Draw fading title image over fountain at game start
         if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0 && titleImage.complete) {
-            const timeSinceStart = Date.now() - gameState.gameStartTime;
+            const timeSinceStart = gameState.frameTime - gameState.gameStartTime;
             const fadeDuration = 4000; // 4 seconds
 
             if (timeSinceStart < fadeDuration) {
@@ -5218,17 +4635,8 @@ function gameLoop() {
         ctx.roundRect(hudX, hudY, hudWidth, hudHeight, cornerRadius);
         ctx.fill();
 
-        // Rainbow gradient border
-        const rainbowGradient = ctx.createLinearGradient(hudX, hudY, hudX + hudWidth, hudY);
-        rainbowGradient.addColorStop(0, '#FF0000');
-        rainbowGradient.addColorStop(0.16, '#FF7F00');
-        rainbowGradient.addColorStop(0.33, '#FFFF00');
-        rainbowGradient.addColorStop(0.5, '#00FF00');
-        rainbowGradient.addColorStop(0.66, '#0000FF');
-        rainbowGradient.addColorStop(0.83, '#4B0082');
-        rainbowGradient.addColorStop(1, '#9400D3');
-
-        ctx.strokeStyle = rainbowGradient;
+        // Rainbow gradient border (uses cached gradient)
+        ctx.strokeStyle = cachedRainbowGradient;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.roundRect(hudX, hudY, hudWidth, hudHeight, cornerRadius);
@@ -5250,15 +4658,11 @@ function gameLoop() {
         ctx.fillStyle = 'rgba(50, 50, 50, 0.8)';
         ctx.fillRect(barX, barY, barWidth, barHeight);
 
-        // XP bar fill
+        // XP bar fill (uses cached gradient)
         const xpPercent = gameState.xp / gameState.xpToNextLevel;
         const fillWidth = barWidth * xpPercent;
 
-        const gradient = ctx.createLinearGradient(barX, barY, barX + fillWidth, barY);
-        gradient.addColorStop(0, '#4169E1');
-        gradient.addColorStop(1, '#1E90FF');
-
-        ctx.fillStyle = gradient;
+        ctx.fillStyle = cachedXpGradient;
         ctx.fillRect(barX, barY, fillWidth, barHeight);
 
         // XP bar border
@@ -5322,16 +4726,13 @@ function gameLoop() {
         }
     }
 
-    // Update UI
-    updateUI();
-
     // Draw version number in lower right corner
     ctx.save();
     ctx.font = '10px monospace';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.2.14', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.3.0', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
@@ -5342,7 +4743,7 @@ function gameLoop() {
 
     // Draw notification overlay
     if (gameState.notification.visible) {
-        const elapsed = Date.now() - gameState.notification.fadeStartTime;
+        const elapsed = gameState.frameTime - gameState.notification.fadeStartTime;
         const duration = gameState.notification.duration;
 
         // Calculate alpha for fade in/out

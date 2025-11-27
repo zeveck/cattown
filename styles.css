@@ -27,113 +27,6 @@ body.hide-cursor * {
     text-align: center;
 }
 
-/* Character Creation Screen */
-#characterCreation {
-    background: rgba(255, 255, 255, 0.95);
-    padding: 40px;
-    border-radius: 20px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    max-width: 900px;
-}
-
-#characterCreation h1 {
-    font-size: 3em;
-    color: #667eea;
-    margin-bottom: 30px;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.creation-container {
-    display: flex;
-    gap: 30px;
-    margin-bottom: 30px;
-}
-
-.creation-panel {
-    flex: 1;
-    background: #f8f9fa;
-    padding: 20px;
-    border-radius: 15px;
-    border: 2px solid #667eea;
-}
-
-.creation-panel h2 {
-    color: #764ba2;
-    margin-bottom: 20px;
-    font-size: 1.5em;
-}
-
-.customization {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-    text-align: left;
-}
-
-.customization label {
-    font-weight: bold;
-    color: #333;
-    margin-bottom: 5px;
-}
-
-.customization input[type="text"],
-.customization select {
-    padding: 10px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    font-size: 1em;
-    transition: border-color 0.3s;
-}
-
-.customization input[type="text"]:focus,
-.customization select:focus {
-    outline: none;
-    border-color: #667eea;
-}
-
-.color-picker input[type="color"] {
-    width: 100%;
-    height: 50px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.preview-container {
-    background: #f8f9fa;
-    padding: 20px;
-    border-radius: 15px;
-    border: 2px solid #667eea;
-    margin-bottom: 20px;
-}
-
-#previewCanvas {
-    border-radius: 10px;
-    background: white;
-}
-
-.start-button {
-    padding: 15px 50px;
-    font-size: 1.5em;
-    font-weight: bold;
-    color: white;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border: none;
-    border-radius: 50px;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-}
-
-.start-button:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-}
-
-.start-button:active {
-    transform: translateY(0);
-}
-
 /* Game Screen */
 #gameScreen {
     position: relative;
@@ -152,83 +45,6 @@ body.hide-cursor * {
     width: 100%;
     height: 100%;
     pointer-events: none;
-}
-
-.ui-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 20px;
-    gap: 20px;
-}
-
-.ui-bottom {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    right: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-}
-
-.stat-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    background: rgba(0, 0, 0, 0.7);
-    padding: 10px 15px;
-    border-radius: 10px;
-    color: white;
-    font-weight: bold;
-}
-
-.stat-label {
-    font-size: 1.2em;
-    min-width: 30px;
-}
-
-.bar-container {
-    width: 200px;
-    height: 25px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    overflow: hidden;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-}
-
-.bar {
-    height: 100%;
-    transition: width 0.3s ease;
-    border-radius: 10px;
-}
-
-.health-bar {
-    background: linear-gradient(90deg, #ff4444, #ff6666);
-    width: 100%;
-}
-
-#healthText {
-    font-size: 1em;
-    min-width: 80px;
-}
-
-.currency {
-    background: rgba(0, 0, 0, 0.7);
-    padding: 10px 20px;
-    border-radius: 10px;
-    color: #FFD700;
-    font-weight: bold;
-    font-size: 1.3em;
-}
-
-.time-display {
-    background: rgba(0, 0, 0, 0.7);
-    padding: 10px 20px;
-    border-radius: 10px;
-    color: white;
-    font-weight: bold;
-    font-size: 1.2em;
 }
 
 .help-container {
@@ -284,19 +100,6 @@ body.hide-cursor * {
     font-size: 0.85em;
     margin: 5px 0;
     padding: 3px 0;
-}
-
-.form-indicator {
-    background: rgba(0, 0, 0, 0.7);
-    padding: 15px 25px;
-    border-radius: 10px;
-    color: white;
-    font-weight: bold;
-    font-size: 1.2em;
-}
-
-#currentForm {
-    color: #FFD700;
 }
 
 /* Controls divider */
@@ -434,13 +237,4 @@ body.hide-cursor * {
 
 .close-controls-button:active {
     transform: scale(0.95);
-}
-
-/* Hide cursor when idle */
-body.hide-cursor {
-    cursor: none;
-}
-
-body.hide-cursor * {
-    cursor: none !important;
 }

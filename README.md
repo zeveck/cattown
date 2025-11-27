@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.2.14
+## Version 0.3.0
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 
@@ -74,6 +74,32 @@ cattown/
 ```
 
 ## Recent Updates
+
+### v0.3.0
+- **Major Performance Overhaul**: Comprehensive optimization pass reducing CPU/GPU load by 50-70%
+  - Viewport culling for trees, chests, items, and fireflies (only render visible objects)
+  - Pre-rendered projectile sprites using offscreen canvas (eliminates per-frame gradient creation)
+  - Cached HUD gradients (rainbow border, XP bar, hue/size sliders)
+  - Cached grass pattern, interior layout, and minimap legend bounds
+  - Frame-rate independent animations using deltaTime (consistent on 60Hz-144Hz+ monitors)
+  - Single `Date.now()` call per frame cached in `gameState.frameTime`
+  - Firefly glow pre-rendered to offscreen canvas with automatic cache cleanup at dawn
+- **Dead Code Removal**: Cleaned up unused code and improved maintainability
+  - Removed unused minimap layer flags (`buildings`, `fountain`, `player`)
+  - Removed dead minimap legend rendering branch
+  - Removed duplicate CSS rules and unused CSS classes
+  - Consolidated DOM queries (eliminated per-frame `getElementById` calls)
+- **Bug Fixes**:
+  - Fixed image count mismatch (45→49) that could cause premature game start
+  - Fixed `furnitureRotations` not being saved/loaded
+  - Fixed O(n²) companion following with indexed loops and direct position passing
+- **Code Quality Improvements**:
+  - Refactored 49 image handlers into reusable `setupImageHandlers()` helper
+  - Standardized distance calculations to use `getDistance()` utility
+  - Added proper constructor initialization for dynamic properties (Player/Companion)
+  - Renamed confusing rotation state variables for clarity
+  - Created `furnitureByType` lookup map for O(1) furniture access
+  - Improved bobOffset initialization and propagation
 
 ### v0.2.14
 - **Controls Panel Bug Fix**: Fixed issue where X button wouldn't close the auto-shown help panel
