@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.3.0
+// Clara's Cat Town - Version 0.3.1
 
 // Game Configuration
 const CONFIG = {
@@ -221,6 +221,7 @@ const gameState = {
     draggedFurnitureType: null, // which furniture item's slider
     lastActivityTime: Date.now(),
     controlsPanelShown: false,
+    audioPanelShown: false,
     hasUserInteracted: false, // Track if user has interacted (moved or dismissed help panel)
     furnitureHues: {
         bed: 0,
@@ -309,6 +310,76 @@ if (closeControlsButton && controlsPanel) {
     });
 }
 
+// Audio button: click toggles mute, right-click/long-press opens panel
+const audioButton = document.getElementById('audioButton');
+const audioPanel = document.getElementById('audioPanel');
+let audioButtonLongPressTimer = null;
+let audioButtonLongPressed = false;
+
+if (audioButton && audioPanel) {
+    // Click toggles mute directly
+    audioButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        // Only toggle mute if it wasn't a long press
+        if (!audioButtonLongPressed) {
+            isMuted = !isMuted;
+            bgMusic.muted = isMuted;
+            updateAudioIcons();
+            saveAudioState();
+        }
+        audioButtonLongPressed = false;
+        gameState.lastActivityTime = Date.now();
+    });
+
+    // Right-click opens audio panel
+    audioButton.addEventListener('contextmenu', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const isVisible = audioPanel.style.display !== 'none';
+        audioPanel.style.display = isVisible ? 'none' : 'block';
+        gameState.audioPanelShown = !isVisible;
+        gameState.lastActivityTime = Date.now();
+    });
+
+    // Long press for touch devices (500ms)
+    audioButton.addEventListener('touchstart', (e) => {
+        audioButtonLongPressed = false;
+        audioButtonLongPressTimer = setTimeout(() => {
+            audioButtonLongPressed = true;
+            const isVisible = audioPanel.style.display !== 'none';
+            audioPanel.style.display = isVisible ? 'none' : 'block';
+            gameState.audioPanelShown = !isVisible;
+            gameState.lastActivityTime = Date.now();
+        }, 500);
+    }, { passive: true });
+
+    audioButton.addEventListener('touchend', () => {
+        if (audioButtonLongPressTimer) {
+            clearTimeout(audioButtonLongPressTimer);
+            audioButtonLongPressTimer = null;
+        }
+    }, { passive: true });
+
+    audioButton.addEventListener('touchmove', () => {
+        if (audioButtonLongPressTimer) {
+            clearTimeout(audioButtonLongPressTimer);
+            audioButtonLongPressTimer = null;
+        }
+    }, { passive: true });
+}
+
+// Close button for audio panel
+const closeAudioButton = document.getElementById('closeAudioButton');
+if (closeAudioButton && audioPanel) {
+    closeAudioButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        audioPanel.style.display = 'none';
+        gameState.audioPanelShown = false;
+    });
+}
+
 // Audio controls
 const muteButton = document.getElementById('muteButton');
 const volumeSlider = document.getElementById('volumeSlider');
@@ -316,12 +387,53 @@ const prevButton = document.getElementById('prevButton');
 const nextButton = document.getElementById('nextButton');
 let isMuted = false;
 
+// Helper to update all audio icons
+function updateAudioIcons() {
+    const icon = isMuted ? '🔇' : '🔊';
+    if (muteButton) muteButton.textContent = icon;
+    if (audioButton) audioButton.textContent = icon;
+}
+
+// Save audio state to localStorage
+function saveAudioState() {
+    try {
+        localStorage.setItem('cattown_audio', JSON.stringify({
+            volume: bgMusic.volume,
+            muted: isMuted
+        }));
+    } catch (e) {
+        // localStorage might not be available
+    }
+}
+
+// Load audio state from localStorage
+function loadAudioState() {
+    try {
+        const saved = localStorage.getItem('cattown_audio');
+        if (saved) {
+            const state = JSON.parse(saved);
+            if (typeof state.volume === 'number') {
+                bgMusic.volume = state.volume;
+                if (volumeSlider) volumeSlider.value = state.volume * 100;
+            }
+            if (typeof state.muted === 'boolean') {
+                isMuted = state.muted;
+                bgMusic.muted = isMuted;
+            }
+            updateAudioIcons();
+        }
+    } catch (e) {
+        // localStorage might not be available or data corrupted
+    }
+}
+
 if (muteButton && volumeSlider) {
     // Mute button click
     muteButton.addEventListener('click', () => {
         isMuted = !isMuted;
         bgMusic.muted = isMuted;
-        muteButton.textContent = isMuted ? '🔇' : '🔊';
+        updateAudioIcons();
+        saveAudioState();
     });
 
     // Volume slider change
@@ -333,12 +445,12 @@ if (muteButton && volumeSlider) {
         if (volume === 0) {
             isMuted = true;
             bgMusic.muted = true;
-            muteButton.textContent = '🔇';
         } else if (isMuted) {
             isMuted = false;
             bgMusic.muted = false;
-            muteButton.textContent = '🔊';
         }
+        updateAudioIcons();
+        saveAudioState();
     });
 
     // Previous track button
@@ -368,7 +480,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.3.0',
+            version: '0.3.1',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -570,7 +682,7 @@ function loadGame(saveData) {
             isMuted = saveData.audio.muted;
             bgMusic.muted = isMuted;
             if (volumeSlider) volumeSlider.value = saveData.audio.volume * 100;
-            if (muteButton) muteButton.textContent = isMuted ? '🔇' : '🔊';
+            updateAudioIcons();
         }
 
         showNotification('✓ Game loaded successfully!', 3000);
@@ -1118,12 +1230,13 @@ class Companion {
         const image = friendImages[this.type];
         if (image && image.complete) {
             if (gameState.isNight) {
-                // Apply glow effect at night
-                ctx.save();
-                ctx.shadowBlur = 15 * this.sizeMultiplier;
-                ctx.shadowColor = COMPANION_GLOW_COLORS[this.type] || '#FFFFFF'; // Default white
-                ctx.drawImage(image, screenX, screenY, this.width, this.height);
-                ctx.restore();
+                // Use pre-rendered glow sprite (avoids per-frame shadowBlur)
+                const glowData = getCachedCompanionWithGlow(this.type, this.width, this.height, this.sizeMultiplier);
+                if (glowData) {
+                    ctx.drawImage(glowData.canvas, screenX - glowData.padding, screenY - glowData.padding);
+                } else {
+                    ctx.drawImage(image, screenX, screenY, this.width, this.height);
+                }
             } else {
                 ctx.drawImage(image, screenX, screenY, this.width, this.height);
             }
@@ -1297,26 +1410,32 @@ class Item {
 
         // Draw heart shape (all types are now hearts with different colors/sizes)
         const heartSize = this.type === 'apple' ? 1.0 : this.type === 'orange' ? 0.85 : 0.7;
+
+        // Use pre-rendered glow sprite at night (avoids per-frame shadowBlur)
+        if (gameState.isNight) {
+            const glowData = getCachedHeartWithGlow(this.type, heartSize);
+            if (glowData) {
+                // Center the pre-rendered heart on the item position
+                const offsetX = screenX + 16 - glowData.baseSize / 2 - glowData.padding;
+                const offsetY = screenY + 16 - glowData.baseSize / 2 - glowData.padding;
+                ctx.drawImage(glowData.canvas, offsetX, offsetY);
+                return;
+            }
+        }
+
+        // Day time rendering (no glow)
         const heartColor = this.type === 'apple' ? '#FF1493' : this.type === 'orange' ? '#FF69B4' : '#FFB6C1';
 
         ctx.save();
         ctx.translate(screenX + 16, screenY + 16);
         ctx.scale(heartSize, heartSize);
 
-        // Add faint glow at night
-        if (gameState.isNight) {
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = heartColor;
-        }
-
         // Draw heart
         ctx.fillStyle = heartColor;
         ctx.beginPath();
         ctx.moveTo(0, -5);
-        // Left top curve
         ctx.bezierCurveTo(-8, -12, -15, -8, -15, 0);
         ctx.bezierCurveTo(-15, 5, -10, 10, 0, 15);
-        // Right side
         ctx.bezierCurveTo(10, 10, 15, 5, 15, 0);
         ctx.bezierCurveTo(15, -8, 8, -12, 0, -5);
         ctx.closePath();
@@ -1620,18 +1739,18 @@ class Chest {
             const chestImg = this.opened ? colorImages.empty : colorImages.full;
 
             if (chestImg && chestImg.complete) {
-                ctx.save();
-
-                // Add glow at night for unopened chests
+                // Use pre-rendered glow sprite at night for unopened chests (avoids per-frame shadowBlur)
                 if (gameState.isNight && !this.opened) {
-                    ctx.shadowBlur = 20 * this.sizeMultiplier;
-                    ctx.shadowColor = this.glowColor;
+                    const glowData = getCachedChestWithGlow(this.color, this.opened, this.width, this.height);
+                    if (glowData) {
+                        ctx.drawImage(glowData.canvas, screenX - glowData.padding, screenY - glowData.padding);
+                    } else {
+                        ctx.drawImage(chestImg, screenX, screenY, this.width, this.height);
+                    }
+                } else {
+                    // Day time or opened chest - no glow needed
+                    ctx.drawImage(chestImg, screenX, screenY, this.width, this.height);
                 }
-
-                // Draw the colored chest image
-                ctx.drawImage(chestImg, screenX, screenY, this.width, this.height);
-
-                ctx.restore();
             } else {
                 // Fallback to old drawing if image not loaded
                 ctx.save();
@@ -1913,11 +2032,13 @@ class Village {
 
             // Add light blue glow at night
             if (gameState.isNight) {
-                ctx.save();
-                ctx.shadowBlur = 30;
-                ctx.shadowColor = '#87CEEB'; // Light blue
-                ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
-                ctx.restore();
+                // Use pre-rendered glow sprite (avoids per-frame shadowBlur)
+                const glowData = getCachedFountainWithGlow(this.catFountain.width, this.catFountain.height);
+                if (glowData) {
+                    ctx.drawImage(glowData.canvas, screenX - glowData.padding, screenY - glowData.padding);
+                } else {
+                    ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
+                }
             } else {
                 ctx.drawImage(catFountainImage, screenX, screenY, this.catFountain.width, this.catFountain.height);
             }
@@ -1992,11 +2113,13 @@ class Village {
         // Draw house image with glow at night
         if (houseImg && houseImg.complete) {
             if (gameState.isNight) {
-                ctx.save();
-                ctx.shadowBlur = 25;
-                ctx.shadowColor = '#FFA500'; // Light orange
-                ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
-                ctx.restore();
+                // Use pre-rendered glow sprite (avoids per-frame shadowBlur)
+                const glowData = getCachedBuildingWithGlow(houseType, building.width, building.height, true);
+                if (glowData) {
+                    ctx.drawImage(glowData.canvas, screenX - glowData.padding, screenY - glowData.padding);
+                } else {
+                    ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
+                }
             } else {
                 ctx.drawImage(houseImg, screenX, screenY, building.width, building.height);
             }
@@ -2185,6 +2308,213 @@ function getCachedFireflyImage(hue, size) {
 
 // Cache for firefly sprites with pre-rendered glow
 const fireflyGlowCache = {};
+
+// Cache for companion sprites with pre-rendered glow (keyed by type_size_glowSize)
+const companionGlowCache = {};
+
+// Cache for chest sprites with pre-rendered glow (keyed by color_opened_width_height)
+const chestGlowCache = {};
+
+// Cache for heart sprites with pre-rendered glow (keyed by type_size)
+const heartGlowCache = {};
+
+// Cache for building sprites with pre-rendered glow (keyed by houseType_width_height_isLit)
+const buildingGlowCache = {};
+
+// Cache for fountain sprite with pre-rendered glow
+let fountainGlowCache = null;
+
+// Get a cached building image WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedBuildingWithGlow(houseType, width, height, isLit) {
+    const cacheKey = `${houseType}_${width}_${height}_${isLit}`;
+
+    if (buildingGlowCache[cacheKey]) {
+        return buildingGlowCache[cacheKey];
+    }
+
+    const houseImg = isLit ? houseImages[`house${houseType}Lights`] : houseImages[`house${houseType}`];
+    if (!houseImg || !houseImg.complete) {
+        return null;
+    }
+
+    const glowPadding = 30; // Enough for shadowBlur of 25
+    const canvasWidth = width + glowPadding * 2;
+    const canvasHeight = height + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasWidth;
+    offscreen.height = canvasHeight;
+    const offCtx = offscreen.getContext('2d');
+
+    // Draw with glow effect baked in
+    offCtx.shadowBlur = 25;
+    offCtx.shadowColor = '#FFA500'; // Light orange
+    offCtx.drawImage(houseImg, glowPadding, glowPadding, width, height);
+    offCtx.shadowBlur = 0;
+
+    buildingGlowCache[cacheKey] = { canvas: offscreen, padding: glowPadding };
+    return buildingGlowCache[cacheKey];
+}
+
+// Get a cached fountain image WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedFountainWithGlow(width, height) {
+    if (fountainGlowCache) {
+        return fountainGlowCache;
+    }
+
+    if (!catFountainImage || !catFountainImage.complete) {
+        return null;
+    }
+
+    const glowPadding = 35; // Enough for shadowBlur of 30
+    const canvasWidth = width + glowPadding * 2;
+    const canvasHeight = height + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasWidth;
+    offscreen.height = canvasHeight;
+    const offCtx = offscreen.getContext('2d');
+
+    // Draw with glow effect baked in
+    offCtx.shadowBlur = 30;
+    offCtx.shadowColor = '#87CEEB'; // Light blue
+    offCtx.drawImage(catFountainImage, glowPadding, glowPadding, width, height);
+    offCtx.shadowBlur = 0;
+
+    fountainGlowCache = { canvas: offscreen, padding: glowPadding };
+    return fountainGlowCache;
+}
+
+// Get a cached companion image WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedCompanionWithGlow(type, width, height, sizeMultiplier) {
+    const glowSize = Math.round(15 * sizeMultiplier);
+    const cacheKey = `${type}_${width}_${height}_${glowSize}`;
+
+    if (companionGlowCache[cacheKey]) {
+        return companionGlowCache[cacheKey];
+    }
+
+    const image = friendImages[type];
+    if (!image || !image.complete) {
+        return null;
+    }
+
+    const glowPadding = glowSize + 5;
+    const canvasWidth = width + glowPadding * 2;
+    const canvasHeight = height + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasWidth;
+    offscreen.height = canvasHeight;
+    const offCtx = offscreen.getContext('2d');
+
+    // Draw with glow effect baked in
+    const glowColor = COMPANION_GLOW_COLORS[type] || '#FFFFFF';
+    offCtx.shadowBlur = glowSize;
+    offCtx.shadowColor = glowColor;
+    offCtx.drawImage(image, glowPadding, glowPadding, width, height);
+    // Second pass for stronger glow
+    offCtx.shadowBlur = glowSize * 0.7;
+    offCtx.drawImage(image, glowPadding, glowPadding, width, height);
+    offCtx.shadowBlur = 0;
+
+    companionGlowCache[cacheKey] = { canvas: offscreen, padding: glowPadding };
+    return companionGlowCache[cacheKey];
+}
+
+// Get a cached chest image WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedChestWithGlow(color, opened, width, height) {
+    const cacheKey = `${color}_${opened}_${width}_${height}`;
+
+    if (chestGlowCache[cacheKey]) {
+        return chestGlowCache[cacheKey];
+    }
+
+    const chestImg = opened ? chestImages[color].empty : chestImages[color].full;
+    if (!chestImg || !chestImg.complete) {
+        return null;
+    }
+
+    const glowPadding = 35; // Enough for shadowBlur of 30
+    const canvasWidth = width + glowPadding * 2;
+    const canvasHeight = height + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasWidth;
+    offscreen.height = canvasHeight;
+    const offCtx = offscreen.getContext('2d');
+
+    // Draw with glow effect baked in
+    const glowColor = CHEST_CONFIG[color].glow;
+    offCtx.shadowBlur = 30;
+    offCtx.shadowColor = glowColor;
+    offCtx.drawImage(chestImg, glowPadding, glowPadding, width, height);
+    offCtx.shadowBlur = 0;
+
+    chestGlowCache[cacheKey] = { canvas: offscreen, padding: glowPadding };
+    return chestGlowCache[cacheKey];
+}
+
+// Get a cached heart sprite WITH glow baked in (avoids per-frame shadowBlur)
+// Returns { canvas, padding } where padding is the extra space for the glow
+function getCachedHeartWithGlow(type, size) {
+    // Round size to reduce cache entries (hearts bob, so size varies slightly)
+    const roundedSize = Math.round(size * 10) / 10;
+    const cacheKey = `${type}_${roundedSize}`;
+
+    if (heartGlowCache[cacheKey]) {
+        return heartGlowCache[cacheKey];
+    }
+
+    const heartColor = type === 'apple' ? '#FF1493' : type === 'orange' ? '#FF69B4' : '#FFB6C1';
+    const glowPadding = 35; // Enough for shadowBlur of 30
+    const baseSize = 32; // Base heart drawing area
+    const canvasSize = baseSize + glowPadding * 2;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = canvasSize;
+    offscreen.height = canvasSize;
+    const offCtx = offscreen.getContext('2d');
+
+    // Center point for heart drawing
+    const centerX = canvasSize / 2;
+    const centerY = canvasSize / 2;
+
+    offCtx.save();
+    offCtx.translate(centerX, centerY);
+    offCtx.scale(roundedSize, roundedSize);
+
+    // Add glow
+    offCtx.shadowBlur = 30;
+    offCtx.shadowColor = heartColor;
+
+    // Draw heart shape
+    offCtx.fillStyle = heartColor;
+    offCtx.beginPath();
+    offCtx.moveTo(0, -5);
+    offCtx.bezierCurveTo(-8, -12, -15, -8, -15, 0);
+    offCtx.bezierCurveTo(-15, 5, -10, 10, 0, 15);
+    offCtx.bezierCurveTo(10, 10, 15, 5, 15, 0);
+    offCtx.bezierCurveTo(15, -8, 8, -12, 0, -5);
+    offCtx.closePath();
+    offCtx.fill();
+
+    // Heart shine (no shadow for this)
+    offCtx.shadowBlur = 0;
+    offCtx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    offCtx.beginPath();
+    offCtx.ellipse(-5, -3, 3, 5, -0.5, 0, Math.PI * 2);
+    offCtx.fill();
+
+    offCtx.restore();
+
+    heartGlowCache[cacheKey] = { canvas: offscreen, padding: glowPadding, baseSize: baseSize };
+    return heartGlowCache[cacheKey];
+}
 
 // Get a cached firefly image WITH glow baked in (avoids per-frame shadowBlur)
 // Returns { canvas, padding } where padding is the extra space for the glow
@@ -2437,6 +2767,9 @@ const bgMusic = new Audio(musicPlaylist[currentTrackIndex]);
 bgMusic.loop = false; // We'll manually advance to next track
 bgMusic.volume = 0.5;
 
+// Load saved audio state (volume, muted) from localStorage
+loadAudioState();
+
 // Function to load and play a track
 function loadTrack(index) {
     currentTrackIndex = index;
@@ -2482,13 +2815,17 @@ document.addEventListener('keydown', (e) => {
     // Reset idle timer on any key press
     gameState.lastActivityTime = Date.now();
 
-    // ESC key to close controls panel
+    // ESC key to close controls panel and audio panel
     if (e.key === 'Escape') {
         if (controlsPanel && controlsPanel.style.display === 'block') {
             controlsPanel.style.display = 'none';
             gameState.controlsPanelShown = false;
             // Mark as interacted to prevent auto-show from re-triggering
             gameState.hasUserInteracted = true;
+        }
+        if (audioPanel && audioPanel.style.display === 'block') {
+            audioPanel.style.display = 'none';
+            gameState.audioPanelShown = false;
         }
         e.preventDefault();
         return;
@@ -4565,12 +4902,14 @@ function gameLoop() {
                 const bobY = screenY + Math.sin(dropped.bobOffset) * 2;
 
                 if (gameState.isNight) {
-                    // Apply glow effect at night
-                    ctx.save();
-                    ctx.shadowBlur = 20 * companionSize; // Larger glow for dropped companions
-                    ctx.shadowColor = COMPANION_GLOW_COLORS[dropped.type] || '#FFFFFF'; // Default white
-                    ctx.drawImage(image, screenX, bobY, width, height);
-                    ctx.restore();
+                    // Use pre-rendered glow sprite (avoids per-frame shadowBlur)
+                    // Use 20/15 = 1.33x size multiplier for dropped companions (larger glow)
+                    const glowData = getCachedCompanionWithGlow(dropped.type, width, height, companionSize * 1.33);
+                    if (glowData) {
+                        ctx.drawImage(glowData.canvas, screenX - glowData.padding, bobY - glowData.padding);
+                    } else {
+                        ctx.drawImage(image, screenX, bobY, width, height);
+                    }
                 } else {
                     ctx.drawImage(image, screenX, bobY, width, height);
                 }
@@ -4732,7 +5071,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.3.0', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.3.1', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {

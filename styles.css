@@ -47,6 +47,87 @@ body.hide-cursor * {
     pointer-events: none;
 }
 
+/* Audio container (lower left) */
+.audio-container {
+    position: absolute;
+    bottom: 30px;
+    left: 20px;
+}
+
+.audio-toggle-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    font-size: 1.5em;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+}
+
+.audio-toggle-button:hover {
+    background: rgba(0, 0, 0, 0.9);
+    border-color: #FFD700;
+    transform: scale(1.1);
+}
+
+.audio-panel {
+    position: absolute;
+    bottom: 50px;
+    left: 0;
+    background: rgba(0, 0, 0, 0.9);
+    padding: 15px;
+    border-radius: 10px;
+    color: white;
+    min-width: 200px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    pointer-events: auto;
+    z-index: 1000;
+}
+
+.audio-panel-title {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #FFD700;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    padding-bottom: 5px;
+}
+
+.close-audio-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    color: rgba(255, 255, 255, 0.6);
+    border: none;
+    font-size: 1.1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 4px;
+    line-height: 1;
+    pointer-events: auto;
+    z-index: 1001;
+}
+
+.close-audio-button:hover {
+    color: #FF6B6B;
+    transform: scale(1.15);
+}
+
+.close-audio-button:active {
+    transform: scale(0.95);
+}
+
+/* Help container (lower right) */
 .help-container {
     position: absolute;
     bottom: 30px;
@@ -100,6 +181,32 @@ body.hide-cursor * {
     font-size: 0.85em;
     margin: 5px 0;
     padding: 3px 0;
+}
+
+/* Controls list layout */
+.controls-list {
+    font-size: 0.85em;
+    padding: 5px 0;
+}
+
+.control-row {
+    display: flex;
+    justify-content: flex-start;
+    padding: 3px 0;
+}
+
+.control-row .key {
+    font-weight: bold;
+    color: #FFD700;
+    width: 60px;
+    text-align: right;
+    flex-shrink: 0;
+    margin-right: 12px;
+}
+
+.control-row .action {
+    color: white;
+    text-align: left;
 }
 
 /* Controls divider */

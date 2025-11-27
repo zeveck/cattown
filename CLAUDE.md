@@ -184,9 +184,10 @@ All sprites in `/graphics` directory:
 3. Add entry to `gameState.furnitureShop` array (line 89)
 
 ## Version History
-Current version: **v0.3.0**
+Current version: **v0.3.1**
 
 Major version updates documented in README.md. Recent focus:
+- v0.3.1: Moved audio controls to speaker button in lower left corner (click to mute, right-click/long-press for panel), improved controls panel layout
 - v0.3.0: Major performance overhaul (viewport culling, gradient caching, deltaTime animations), dead code removal, bug fixes
 - v0.2.14: Controls panel bug fix (auto-show race condition), code refactoring (hasUserInteracted)
 - v0.2.13: SEO & social media meta tags for better sharing on social platforms
