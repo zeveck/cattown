@@ -50,36 +50,23 @@
         <canvas id="gameCanvas" width="1200" height="800"></canvas>
 
         <div id="gameUI">
-            <!-- Audio controls in lower left -->
-            <div class="audio-container">
-                <button id="audioButton" class="audio-toggle-button">🔊</button>
-                <div id="audioPanel" class="audio-panel" style="display: none;">
-                    <button id="closeAudioButton" class="close-audio-button">✕</button>
-                    <div class="audio-panel-title">Audio</div>
-                    <div class="audio-controls-inline">
-                        <button id="prevButton" class="audio-button">⏮</button>
-                        <button id="muteButton" class="audio-button">🔊</button>
-                        <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
-                        <button id="nextButton" class="audio-button">⏭</button>
-                    </div>
-                </div>
-            </div>
-
             <!-- Help/Controls in lower right -->
             <div class="help-container">
                 <button id="helpButton" class="help-button">?</button>
                 <div id="controlsPanel" class="controls-panel" style="display: none;">
                     <button id="closeControlsButton" class="close-controls-button">✕</button>
                     <div class="controls-title">Controls</div>
-                    <div class="controls-list" style="font-size: 0.85em;">
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Arrows</span><span>Move</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">T</span><span>Transform</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Space</span><span>Magic</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">E</span><span>Interact</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">F</span><span>Place Friend</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">M</span><span>Map</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Home</span><span>Fountain</span></div>
-                        <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Esc</span><span>Close</span></div>
+                    <div style="display: flex; justify-content: center;">
+                        <div class="controls-list" style="font-size: 0.85em; display: inline-block;">
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Arrows</span><span>Move</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">T</span><span>Transform</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Space</span><span>Magic (as girl)</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">E</span><span>Engage / Interact</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">F</span><span>Place Friend</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">M</span><span>Map</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Home</span><span>Fountain</span></div>
+                            <div style="display: flex; padding: 3px 0;"><span style="font-weight: bold; color: #FFD700; width: 60px; text-align: right; margin-right: 12px;">Esc</span><span>Close</span></div>
+                        </div>
                     </div>
 
                     <div class="controls-divider"></div>
@@ -89,6 +76,16 @@
                         <button id="saveButton" class="save-load-button">💾 Save Game</button>
                         <button id="loadButton" class="save-load-button">📂 Load Game</button>
                         <input type="file" id="loadFileInput" accept=".json" style="display: none;">
+                    </div>
+
+                    <div class="controls-divider"></div>
+
+                    <div class="controls-title">Audio</div>
+                    <div class="audio-controls-inline">
+                        <button id="prevButton" class="audio-button">⏮</button>
+                        <button id="muteButton" class="audio-button">🔊</button>
+                        <input type="range" id="volumeSlider" class="volume-slider" min="0" max="100" value="50">
+                        <button id="nextButton" class="audio-button">⏭</button>
                     </div>
                 </div>
             </div>

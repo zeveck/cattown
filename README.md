@@ -1,5 +1,5 @@
 # Clara's Cat Town
-## Version 0.3.2
+## Version 0.3.3
 
 A browser-based action RPG where you explore a charming town with your customizable cat companion.
 

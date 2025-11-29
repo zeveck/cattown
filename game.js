@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.3.2
+// Clara's Cat Town - Version 0.3.3
 
 // Game Configuration
 const CONFIG = {
@@ -221,7 +221,6 @@ const gameState = {
     draggedFurnitureType: null, // which furniture item's slider
     lastActivityTime: Date.now(),
     controlsPanelShown: false,
-    audioPanelShown: false,
     hasUserInteracted: false, // Track if user has interacted (moved or dismissed help panel)
     furnitureHues: {
         bed: 0,
@@ -310,76 +309,6 @@ if (closeControlsButton && controlsPanel) {
     });
 }
 
-// Audio button: click toggles mute, right-click/long-press opens panel
-const audioButton = document.getElementById('audioButton');
-const audioPanel = document.getElementById('audioPanel');
-let audioButtonLongPressTimer = null;
-let audioButtonLongPressed = false;
-
-if (audioButton && audioPanel) {
-    // Click toggles mute directly
-    audioButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        // Only toggle mute if it wasn't a long press
-        if (!audioButtonLongPressed) {
-            isMuted = !isMuted;
-            bgMusic.muted = isMuted;
-            updateAudioIcons();
-            saveAudioState();
-        }
-        audioButtonLongPressed = false;
-        gameState.lastActivityTime = Date.now();
-    });
-
-    // Right-click opens audio panel
-    audioButton.addEventListener('contextmenu', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        const isVisible = audioPanel.style.display !== 'none';
-        audioPanel.style.display = isVisible ? 'none' : 'block';
-        gameState.audioPanelShown = !isVisible;
-        gameState.lastActivityTime = Date.now();
-    });
-
-    // Long press for touch devices (500ms)
-    audioButton.addEventListener('touchstart', (e) => {
-        audioButtonLongPressed = false;
-        audioButtonLongPressTimer = setTimeout(() => {
-            audioButtonLongPressed = true;
-            const isVisible = audioPanel.style.display !== 'none';
-            audioPanel.style.display = isVisible ? 'none' : 'block';
-            gameState.audioPanelShown = !isVisible;
-            gameState.lastActivityTime = Date.now();
-        }, 500);
-    }, { passive: true });
-
-    audioButton.addEventListener('touchend', () => {
-        if (audioButtonLongPressTimer) {
-            clearTimeout(audioButtonLongPressTimer);
-            audioButtonLongPressTimer = null;
-        }
-    }, { passive: true });
-
-    audioButton.addEventListener('touchmove', () => {
-        if (audioButtonLongPressTimer) {
-            clearTimeout(audioButtonLongPressTimer);
-            audioButtonLongPressTimer = null;
-        }
-    }, { passive: true });
-}
-
-// Close button for audio panel
-const closeAudioButton = document.getElementById('closeAudioButton');
-if (closeAudioButton && audioPanel) {
-    closeAudioButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        audioPanel.style.display = 'none';
-        gameState.audioPanelShown = false;
-    });
-}
-
 // Audio controls
 const muteButton = document.getElementById('muteButton');
 const volumeSlider = document.getElementById('volumeSlider');
@@ -387,11 +316,10 @@ const prevButton = document.getElementById('prevButton');
 const nextButton = document.getElementById('nextButton');
 let isMuted = false;
 
-// Helper to update all audio icons
+// Helper to update audio icon
 function updateAudioIcons() {
     const icon = isMuted ? '🔇' : '🔊';
     if (muteButton) muteButton.textContent = icon;
-    if (audioButton) audioButton.textContent = icon;
 }
 
 // Save audio state to localStorage
@@ -480,7 +408,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.3.2',
+            version: '0.3.3',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -2829,17 +2757,13 @@ document.addEventListener('keydown', (e) => {
     // Reset idle timer on any key press
     gameState.lastActivityTime = Date.now();
 
-    // ESC key to close controls panel and audio panel
+    // ESC key to close controls panel
     if (e.key === 'Escape') {
         if (controlsPanel && controlsPanel.style.display === 'block') {
             controlsPanel.style.display = 'none';
             gameState.controlsPanelShown = false;
             // Mark as interacted to prevent auto-show from re-triggering
             gameState.hasUserInteracted = true;
-        }
-        if (audioPanel && audioPanel.style.display === 'block') {
-            audioPanel.style.display = 'none';
-            gameState.audioPanelShown = false;
         }
         e.preventDefault();
         return;
@@ -5101,7 +5025,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.3.2', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.3.3', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
