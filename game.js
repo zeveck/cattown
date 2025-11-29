@@ -1,4 +1,4 @@
-// Clara's Cat Town - Version 0.3.1
+// Clara's Cat Town - Version 0.3.2
 
 // Game Configuration
 const CONFIG = {
@@ -480,7 +480,7 @@ function showNotification(message, duration = 3000) {
 function saveGame() {
     try {
         const saveData = {
-            version: '0.3.1',
+            version: '0.3.2',
             timestamp: new Date().toISOString(),
             player: gameState.player ? {
                 x: gameState.player.x,
@@ -837,26 +837,38 @@ class Player {
         // Check if speed boost has expired
         this.checkSpeedBoost();
 
-        // Movement
+        // Movement - calculate direction vector
         const actualSpeed = this.getActualSpeed();
+        let dx = 0;
+        let dy = 0;
         let moved = false;
+
         if (gameState.keys['ArrowUp']) {
-            this.y -= actualSpeed;
+            dy -= 1;
             moved = true;
         }
         if (gameState.keys['ArrowDown']) {
-            this.y += actualSpeed;
+            dy += 1;
             moved = true;
         }
         if (gameState.keys['ArrowLeft']) {
-            this.x -= actualSpeed;
+            dx -= 1;
             this.facingRight = false;
             moved = true;
         }
         if (gameState.keys['ArrowRight']) {
-            this.x += actualSpeed;
+            dx += 1;
             this.facingRight = true;
             moved = true;
+        }
+
+        // Normalize diagonal movement to maintain consistent speed
+        if (dx !== 0 || dy !== 0) {
+            const magnitude = Math.sqrt(dx * dx + dy * dy);
+            dx = (dx / magnitude) * actualSpeed;
+            dy = (dy / magnitude) * actualSpeed;
+            this.x += dx;
+            this.y += dy;
         }
 
         // Update animation state (walking frames, idle animations)
@@ -1180,8 +1192,9 @@ class Companion {
 
             if (distance > 5) { // Close enough threshold
                 const angle = Math.atan2(dy, dx);
-                this.x += Math.cos(angle) * this.speed * 0.5; // Move slowly
-                this.y += Math.sin(angle) * this.speed * 0.5;
+                const baseSpeed = gameState.player.getActualSpeed();
+                this.x += Math.cos(angle) * baseSpeed * 0.5; // Move slowly
+                this.y += Math.sin(angle) * baseSpeed * 0.5;
             }
         } else {
             // Follow player with some distance
@@ -1205,7 +1218,8 @@ class Companion {
             // Move toward target if too far
             if (distToTarget > followDist + 5) {
                 const angle = Math.atan2(dyTarget, dxTarget);
-                const speed = this.hasJoinedLine ? this.speed : this.speed * 1.5;
+                const baseSpeed = gameState.player.getActualSpeed();
+                const speed = this.hasJoinedLine ? baseSpeed : baseSpeed * 1.5;
                 this.x += Math.cos(angle) * speed;
                 this.y += Math.sin(angle) * speed;
             }
@@ -3340,8 +3354,9 @@ function drawHouseInterior(ctx) {
 
                 if (distance > 5) { // Close enough threshold
                     const angle = Math.atan2(dy, dx);
-                    companion.houseX += Math.cos(angle) * companion.speed * 0.5; // Move slowly
-                    companion.houseY += Math.sin(angle) * companion.speed * 0.5;
+                    const baseSpeed = gameState.player.getActualSpeed();
+                    companion.houseX += Math.cos(angle) * baseSpeed * 0.5; // Move slowly
+                    companion.houseY += Math.sin(angle) * baseSpeed * 0.5;
                 }
             }
         } else {
@@ -3353,8 +3368,9 @@ function drawHouseInterior(ctx) {
 
             if (distance > targetDist) {
                 const angle = Math.atan2(dy, dx);
-                companion.houseX += Math.cos(angle) * companion.speed;
-                companion.houseY += Math.sin(angle) * companion.speed;
+                const baseSpeed = gameState.player.getActualSpeed();
+                companion.houseX += Math.cos(angle) * baseSpeed;
+                companion.houseY += Math.sin(angle) * baseSpeed;
             }
         }
 
@@ -3517,9 +3533,13 @@ function drawHouseInterior(ctx) {
 
             if (distance < 40) {
                 // Pick up the companion and add back to line
+                // Update companion's house coordinates to match where it was dropped
+                dropped.companion.houseX = dropped.houseX;
+                dropped.companion.houseY = dropped.houseY;
                 gameState.companions.push(dropped.companion);
-                gameState.droppedCompanions.splice(i, 1);
-                continue;
+                // Don't remove from droppedCompanions yet - draw it one more frame to avoid flicker
+                // Mark for removal after this frame
+                dropped.removeNextFrame = true;
             }
         }
 
@@ -3538,6 +3558,9 @@ function drawHouseInterior(ctx) {
             ctx.drawImage(image, dropped.houseX, dropped.houseY + Math.sin(dropped.bobOffset) * 2, width, height);
         }
     }
+
+    // Clean up dropped companions marked for removal (after drawing to avoid flicker)
+    gameState.droppedCompanions = gameState.droppedCompanions.filter(d => !d.removeNextFrame);
 
     // Draw player
     if (gameState.player) {
@@ -4731,8 +4754,12 @@ function gameLoop() {
 
                 if (distance < 40) {
                     // Pick up the companion and add back to line
+                    // Update companion's world coordinates to match where it was dropped
+                    dropped.companion.x = dropped.x;
+                    dropped.companion.y = dropped.y;
                     gameState.companions.push(dropped.companion);
-                    gameState.droppedCompanions.splice(i, 1);
+                    // Mark for removal (will be filtered after drawing loop)
+                    dropped.removeNextFrame = true;
                     continue;
                 }
             }
@@ -4916,6 +4943,9 @@ function gameLoop() {
             }
         }
 
+        // Clean up dropped companions marked for removal (after drawing to avoid flicker)
+        gameState.droppedCompanions = gameState.droppedCompanions.filter(d => !d.removeNextFrame);
+
         // Draw fading title image over fountain at game start
         if (gameState.village && gameState.village.catFountain && gameState.gameStartTime > 0 && titleImage.complete) {
             const timeSinceStart = gameState.frameTime - gameState.gameStartTime;
@@ -5071,7 +5101,7 @@ function gameLoop() {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('v0.3.1', canvas.width - 5, canvas.height - 5);
+    ctx.fillText('v0.3.2', canvas.width - 5, canvas.height - 5);
     ctx.restore();
     // Draw chest messages on top of everything
     if (!gameState.isInsideHouse) {
